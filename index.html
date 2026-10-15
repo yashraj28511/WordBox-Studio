@@ -210,7 +210,15 @@
               <option value="4:5">4:5 · portrait</option>
               <option value="4:3">4:3 · classic</option>
               <option value="21:9">21:9 · cinema</option>
+              <option value="custom">Custom size …</option>
             </select>
+          </div>
+          <div class="row" id="projSizeRow">
+            <span class="mini" style="width:74px">Size</span>
+            <input type="number" id="projW" min="64" max="4096" step="2" value="1080" style="width:76px">
+            <span class="mini">×</span>
+            <input type="number" id="projH" min="64" max="4096" step="2" value="1920" style="width:76px">
+            <button class="btn tiny ghost" id="btnProjSizeDlg">Presets…</button>
           </div>
           <div class="hint" id="stageHint">
             In <b>audio-only mode</b> this color fills the whole frame.
@@ -298,7 +306,12 @@
           <div class="row"><span class="mini" style="width:96px">Blur</span><input type="range" id="shadowBlur" min="0" max="80" value="12"><span class="mini" id="shadowBlurVal" style="width:38px;text-align:right">12</span></div>
           <div class="row"><span class="mini" style="width:96px">Color</span><input type="color" id="shadowColor" value="#000000"></div>
           <div class="row"><span class="mini" style="width:96px">Fade</span><select id="shadowFade" style="flex:1"><option value="out">Fade out (near → far)</option><option value="in">Fade in (near → far)</option><option value="both">Fade both ends</option><option value="none">No fade</option></select></div>
-          <div class="hint">Long shadow extends the text shadow along the selected direction. Fade controls how its opacity changes along the shadow.</div>
+          <div class="row"><span class="mini" style="width:96px">Layer</span><select id="shadowLayer" style="flex:1"><option value="above">Above the box (box sits behind)</option><option value="behind">Behind the box</option></select></div>
+          <div class="row"><span class="mini" style="width:96px">Scope</span><select id="shadowScope" style="flex:1"><option value="all">All visible words</option><option value="active">Spoken word only</option></select></div>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="shadowBox"> Box casts its own shadow too</label>
+          </div>
+          <div class="hint">Long shadow extends the text shadow along the selected direction. Fade controls how its opacity changes along the shadow. On <b>Above the box</b> the shadow is painted over the caption box — including animated boxes — while the letters stay crisp on top.</div>
         </div>
         <div class="divider"></div>
         <div class="field">
@@ -468,12 +481,17 @@
         </div>
         <div class="divider"></div>
         <div class="field">
-          <label>Project</label>
+          <label>Project file</label>
           <div class="row">
-            <button class="btn grow" id="btnSaveJson">Save project</button>
-            <button class="btn grow" id="btnLoadJson">Load project</button>
+            <button class="btn primary grow" id="btnSaveJson">Save project to my PC</button>
+            <button class="btn grow" id="btnLoadJson">Open project…</button>
           </div>
-          <input type="file" id="jsonInput" accept=".json" hidden>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="prjIncludeMedia" checked> Include the video / audio file</label>
+          </div>
+          <div class="progress" id="prjProgress"><i></i></div>
+          <div class="hint" id="prjInfo">Saves a single <b>.wordbox</b> file with your captions, styling, animation, project size and — when the box above is ticked — the media itself, so reopening it later restores the whole project. Untick it for a small settings-only file you pair with the original media.</div>
+          <input type="file" id="jsonInput" accept=".wordbox,.json" hidden>
         </div>
       </div>
     </div>
@@ -483,6 +501,25 @@
     <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
     <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
   </aside>
+</div>
+
+<div class="modal-back" id="sizeModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sizeModalTitle">
+    <h3 id="sizeModalTitle">Project size</h3>
+    <p class="modal-sub" id="sizeModalSub">Audio has no picture of its own, so pick the canvas your captions will be rendered on.</p>
+    <div class="size-grid" id="sizeGrid"></div>
+    <div class="row">
+      <span class="mini" style="width:60px">Custom</span>
+      <input type="number" id="dlgW" min="64" max="4096" step="2" value="1080" style="width:84px">
+      <span class="mini">×</span>
+      <input type="number" id="dlgH" min="64" max="4096" step="2" value="1920" style="width:84px">
+      <span class="mini" id="dlgRatio">9:16</span>
+    </div>
+    <div class="row modal-actions">
+      <button class="btn ghost" id="sizeCancel">Cancel</button>
+      <button class="btn primary grow" id="sizeOk">Create project</button>
+    </div>
+  </div>
 </div>
 
 <input type="file" id="videoInput" accept="video/*,audio/*" hidden>

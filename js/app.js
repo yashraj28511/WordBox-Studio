@@ -20,6 +20,7 @@ const state = {
     preset: "box",
     videoBgColor: "#000000",
     stageAspect: "auto",
+    projW: 1080, projH: 1920,
     fontFamily: "Inter", fontWeight: 800, fontSize: 64,
     uppercase: true, textColor: "#ffffff", boxColor: "#2563eb",
     accentColor: "#ffd400", strokeColor: "#000000", strokeWidth: 0,
@@ -28,7 +29,8 @@ const state = {
     maxWords: 0, wordsMode: 0, maxLines: 0, revealMode: 2,
     boxMode: 0, animIn: "pop",
     shadowType: "none", shadowDirection: 135, shadowDistance: 12, shadowOpacity: 70,
-    shadowBlur: 12, shadowColor: "#000000", shadowFade: "out", keepWordsTogether: true,
+    shadowBlur: 12, shadowColor: "#000000", shadowFade: "out",
+    shadowLayer: "above", shadowScope: "all", shadowBox: false, keepWordsTogether: true,
     popTime: 0.14, popFrom: 70, moveDist: 60, stagger: 0.03,
     animOut: false, outTime: 0.10, timingMode: 0,
     emBold: true, emItalic: false,
@@ -40,6 +42,7 @@ let video, overlay, octx;
 let VW = 0, VH = 0, SW = 0, SH = 0, SCALE = 1;
 let duration = 0, dirty = true, lastDrawTime = -1;
 let pendingMode = "video";
+let PRJ_KEEP_FONT_SIZE = false;
 
 /* =====================================================================
    TEXT + EMPHASIS
@@ -557,6 +560,7 @@ function roundRect(ctx, x, y, w, h, r){
 }
 function drawCaptions(ctx, W, H, t, st, segs, scale){
   ctx.save();
+  CUR_SCALE = scale || 1;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.textBaseline = "alphabetic";
   // Safety net: even if two segments overlap, draw only the most recently started one.
@@ -899,47 +903,155 @@ function layoutSegment(ctx, W, H, st, seg){
            boxH, boxTopOff, widths, lines: lineData, nL };
 }
 
+/* ---------- text shadow (its own layer, usable with every caption preset) ----------
+   The shadow can sit either behind the caption box (classic) or above it, so an
+   animated box slides in *behind* the shadow while the letters stay crisp on top. */
+let CUR_SCALE = 1;
+let SHADOW_LAYER_CANVAS = null;
+
+function shadowGeom(st){
+  if (!st.shadowType || st.shadowType === "none" || !(st.shadowOpacity > 0)) return null;
+  const radians = (st.shadowDirection || 0) * Math.PI / 180;
+  const k = (st.fontSize || 64) / 64;
+  const distance = Math.max(0, st.shadowDistance || 0) * k;
+  const hex = (st.shadowColor || "#000000").replace("#", "");
+  return {
+    dx: Math.cos(radians) * distance,
+    dy: Math.sin(radians) * distance,
+    distance,
+    blur: Math.max(0, st.shadowBlur || 0) * k,
+    alpha: st.shadowOpacity / 100,
+    r: parseInt(hex.slice(0,2),16) || 0,
+    g: parseInt(hex.slice(2,4),16) || 0,
+    b: parseInt(hex.slice(4,6),16) || 0
+  };
+}
+function shadowWords(t, st, seg, L){
+  const act = activeWordIndex(seg, t);
+  const activeOnly = st.shadowScope === "active";
+  const picks = [];
+  for (const line of L.lines){
+    for (let k = 0; k < line.idxs.length; k++){
+      const i = line.idxs[k];
+      if (activeOnly){ if (i !== act) continue; }
+      else if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
+      picks.push({ i, r: line.rects[k], baseline: line.baseline, boxTop: line.boxTop });
+    }
+  }
+  return picks;
+}
+function fadeAt(st, p){
+  if (st.shadowFade === "out")  return 1 - p;
+  if (st.shadowFade === "in")   return p;
+  if (st.shadowFade === "both") return Math.min(p, 1-p) * 2;
+  return 1;
+}
+function paintTextShadow(ctx, t, st, seg, L, sh){
+  for (const w of shadowWords(t, st, seg, L)){
+    ctx.save();
+    ctx.font = fontStr(st, L.fs, seg.em[w.i]);
+    const drawAt = (ox, oy, alpha) => {
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = `rgb(${sh.r},${sh.g},${sh.b})`;
+      ctx.fillText(seg.words[w.i], w.r.x + L.padX + ox, w.baseline + oy);
+    };
+    if (st.shadowType === "drop"){
+      ctx.shadowColor = `rgba(${sh.r},${sh.g},${sh.b},${sh.alpha})`;
+      ctx.shadowBlur = sh.blur;
+      ctx.shadowOffsetX = sh.dx; ctx.shadowOffsetY = sh.dy;
+      drawAt(0, 0, 1);
+    } else {
+      ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+      const steps = Math.max(1, Math.min(80, Math.ceil(sh.distance)));
+      for (let step = steps; step >= 1; step--){
+        const p = step / steps;
+        drawAt(sh.dx * p, sh.dy * p, sh.alpha * (st.shadowFade === "none" ? 1 : Math.max(0, fadeAt(st, p))));
+      }
+    }
+    ctx.restore();
+  }
+}
+/* Optional: the caption box drops a shadow of its own. Always painted behind the box. */
+function paintBoxShadow(ctx, t, st, seg, L, sh){
+  const seen = Object.create(null);
+  for (const w of shadowWords(t, st, seg, L)){
+    const key = w.r.x.toFixed(2) + "|" + w.boxTop.toFixed(2);
+    if (seen[key]) continue;
+    seen[key] = 1;
+    ctx.save();
+    const paint = (ox, oy, alpha) => {
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = `rgb(${sh.r},${sh.g},${sh.b})`;
+      roundRect(ctx, w.r.x + ox, w.boxTop + oy, w.r.w, L.boxH, st.corner);
+      ctx.fill();
+    };
+    if (st.shadowType === "drop"){
+      ctx.shadowColor = `rgba(${sh.r},${sh.g},${sh.b},${sh.alpha})`;
+      ctx.shadowBlur = sh.blur;
+      ctx.shadowOffsetX = sh.dx; ctx.shadowOffsetY = sh.dy;
+      paint(0, 0, 1);
+    } else {
+      const steps = Math.max(1, Math.min(80, Math.ceil(sh.distance)));
+      for (let step = steps; step >= 1; step--){
+        const p = step / steps;
+        paint(sh.dx * p, sh.dy * p, sh.alpha * (st.shadowFade === "none" ? 1 : Math.max(0, fadeAt(st, p))));
+      }
+    }
+    ctx.restore();
+  }
+}
+/* Cut the letter shapes back out of the shadow layer, so a shadow drawn above the
+   box never muddies the text it belongs to. */
+function punchGlyphs(ctx, t, st, seg, L){
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#000";
+  ctx.strokeStyle = "#000";
+  ctx.lineJoin = "round"; ctx.miterLimit = 2;
+  const lw = strokeW(st, L.fs);
+  for (const w of shadowWords(t, st, seg, L)){
+    ctx.font = fontStr(st, L.fs, seg.em[w.i]);
+    const x = w.r.x + L.padX, y = w.baseline;
+    if (lw > 0.1){ ctx.lineWidth = lw; ctx.strokeText(seg.words[w.i], x, y); }
+    ctx.fillText(seg.words[w.i], x, y);
+  }
+  ctx.restore();
+}
+function shadowScratch(ctx){
+  const cw = ctx.canvas.width, ch = ctx.canvas.height;
+  if (!SHADOW_LAYER_CANVAS) SHADOW_LAYER_CANVAS = document.createElement("canvas");
+  const c = SHADOW_LAYER_CANVAS;
+  if (c.width !== cw || c.height !== ch){ c.width = cw; c.height = ch; }
+  const lx = c.getContext("2d");
+  lx.setTransform(1, 0, 0, 1, 0, 0);
+  lx.clearRect(0, 0, cw, ch);
+  lx.setTransform(CUR_SCALE, 0, 0, CUR_SCALE, 0, 0);
+  lx.textBaseline = "alphabetic";
+  return { canvas: c, ctx: lx };
+}
+
 function drawSegment(ctx, W, H, t, st, seg){
   const L = layoutSegment(ctx, W, H, st, seg);
   if (!L) return;
-  // Independent text shadow layer, so it can be combined with any caption preset.
-  if (st.shadowType && st.shadowType !== "none" && st.shadowOpacity > 0){
-    const radians = (st.shadowDirection || 0) * Math.PI / 180;
-    const distance = Math.max(0, st.shadowDistance || 0) * (st.fontSize / 64);
-    const dx = Math.cos(radians) * distance, dy = Math.sin(radians) * distance;
-    const hex = (st.shadowColor || "#000000").replace("#", "");
-    const rr = parseInt(hex.slice(0,2),16)||0, gg = parseInt(hex.slice(2,4),16)||0, bb = parseInt(hex.slice(4,6),16)||0;
-    const act = activeWordIndex(seg, t);
-    for (const line of L.lines){
-      for (let k = 0; k < line.idxs.length; k++){
-        const i = line.idxs[k], r = line.rects[k];
-        if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
-        ctx.save(); ctx.font = fontStr(st, L.fs, seg.em[i]);
-        const drawAt = (ox, oy, alpha) => {
-          ctx.globalAlpha = alpha; ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
-          ctx.fillText(seg.words[i], r.x + L.padX + ox, line.baseline + oy);
-        };
-        if (st.shadowType === "drop"){
-          ctx.shadowColor = `rgba(${rr},${gg},${bb},${st.shadowOpacity/100})`;
-          ctx.shadowBlur = Math.max(0, st.shadowBlur || 0) * (st.fontSize/64);
-          ctx.shadowOffsetX = dx; ctx.shadowOffsetY = dy;
-          drawAt(0, 0, 1);
-        } else {
-          ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
-          const steps = Math.max(1, Math.min(50, Math.ceil(distance)));
-          for (let step = steps; step >= 1; step--){
-            const p = step / steps; let fade = 1;
-            if (st.shadowFade === "out") fade = 1-p;
-            else if (st.shadowFade === "in") fade = p;
-            else if (st.shadowFade === "both") fade = Math.min(p, 1-p)*2;
-            drawAt(dx*p, dy*p, (st.shadowOpacity/100) * (st.shadowFade === "none" ? 1 : Math.max(0,fade)));
-          }
-        }
-        ctx.restore();
-      }
-    }
-  }
+  const sh = shadowGeom(st);
+  const above = sh && st.shadowLayer !== "behind";
+  if (sh && st.shadowBox) paintBoxShadow(ctx, t, st, seg, L, sh);
+  if (sh && !above) paintTextShadow(ctx, t, st, seg, L, sh);
   (RENDERERS[st.preset] || RENDERERS.box)(ctx, W, H, t, st, seg, L);
+  if (above){
+    // Paint the shadow on its own layer, cut the letters out of it, then lay it over
+    // the finished caption: the box (animated or not) ends up behind the shadow.
+    const lay = shadowScratch(ctx);
+    paintTextShadow(lay.ctx, t, st, seg, L, sh);
+    punchGlyphs(lay.ctx, t, st, seg, L);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(lay.canvas, 0, 0);
+    ctx.restore();
+  }
 }
 
 /* =====================================================================
@@ -1851,7 +1963,7 @@ function renderStacked(ctx, W, H, t, st, seg, L){
    ===================================================================== */
 function renderLoop(){
   requestAnimationFrame(renderLoop);
-  if (!video || !video.videoWidth) return;
+  if (!video || !SW || !SH || !state.videoFile) return;
   const t = video.currentTime;
   if (!dirty && t === lastDrawTime) return;
   lastDrawTime = t; dirty = false;
@@ -1869,6 +1981,24 @@ function fitContain(sw, sh, dw, dh){
 }
 function recomputeStage(){
   const aspect = state.style.stageAspect || "auto";
+  if (aspect === "custom"){
+    // An explicit project size (chosen when importing audio, or typed in the Style tab).
+    const pw = clamp(Math.round(state.style.projW || 1080), 64, 4096);
+    const ph = clamp(Math.round(state.style.projH || 1920), 64, 4096);
+    if (state.mode === "audio"){ SW = pw; SH = ph; }
+    else {
+      // Video keeps its own pixels; the project size only sets the frame shape.
+      const targetAR = pw / ph, videoAR = (VW && VH) ? VW / VH : targetAR;
+      if (!VW || !VH){ SW = pw; SH = ph; }
+      else if (videoAR > targetAR){ SW = VW; SH = Math.round(VW / targetAR); }
+      else { SH = VH; SW = Math.round(VH * targetAR); }
+    }
+    SCALE = Math.min(1, 1600 / Math.max(SW, SH));
+    overlay.width  = Math.round(SW * SCALE);
+    overlay.height = Math.round(SH * SCALE);
+    dirty = true;
+    return;
+  }
   if (state.mode === "audio"){
     let aw, ah;
     if (aspect === "auto" && VW && VH){ aw = VW; ah = VH; }
@@ -1899,6 +2029,7 @@ function applyModeUI(){
 }
 function setMode(mode){
   if (!state.videoFile) return;
+  if (state.audioOnlySource && mode === "video") return;
   state.mode = mode;
   applyModeUI();
   if (VW && VH){ recomputeStage(); fitStage(); renderTimeline(); }
@@ -1932,13 +2063,18 @@ octx = overlay.getContext("2d");
 function loadVideoFile(file, mode){
   if (!file) return;
   state.videoFile = file;
-  state.mode = mode || "video";
+  state.audioOnlySource = isAudioFile(file);
+  state.mode = state.audioOnlySource ? "audio" : (mode || "video");
   const url = URL.createObjectURL(file);
   video.src = url;
   video.load();
   $("#emptyState").classList.add("hide");
   applyModeUI();
-  $("#modeSwitch").classList.remove("disabled");
+  const ms = $("#modeSwitch");
+  ms.classList.toggle("disabled", !!state.audioOnlySource);
+  ms.title = state.audioOnlySource
+    ? "This file has no picture, so it stays in audio mode"
+    : "Switch between video and audio-only";
 }
 
 video.addEventListener("loadedmetadata", function(){
@@ -1947,8 +2083,9 @@ video.addEventListener("loadedmetadata", function(){
   duration = video.duration || 0;
   recomputeStage();
   fitStage();
-  if (!state.style.fontSize || state.style.fontSize === 64){
-    const fs = Math.round(VH * 0.055);
+  if (PRJ_KEEP_FONT_SIZE){ PRJ_KEEP_FONT_SIZE = false; }
+  else if (!state.style.fontSize || state.style.fontSize === 64){
+    const fs = Math.round((SH || VH) * 0.055);
     state.style.fontSize = clamp(fs, 24, 200);
     $("#fontSize").value = Math.min(200, state.style.fontSize);
     $("#fontSizeNum").value = state.style.fontSize;
@@ -2653,28 +2790,130 @@ function exportVideo(){
 /* =====================================================================
    PROJECT SAVE/LOAD
    ===================================================================== */
-function saveProject(){
-  const data = { version: 5, style: state.style, captions: state.captions, mode: state.mode };
-  download(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "wordbox-project.json");
+/* A project is one file the user keeps on their PC:
+     "WBOXPRJ1" + 4-byte little-endian header length + UTF-8 JSON header + raw media bytes.
+   The header alone is valid JSON-ish metadata, and old .json projects still open. */
+const PRJ_MAGIC = "WBOXPRJ1";
+const PRJ_VERSION = 6;
+
+function prjSnapshot(){
+  return {
+    app: "WordBox Studio",
+    version: PRJ_VERSION,
+    savedAt: new Date().toISOString(),
+    style: state.style,
+    captions: state.captions,
+    mode: state.mode,
+    project: {
+      width: state.style.projW || 1080,
+      height: state.style.projH || 1920,
+      stageAspect: state.style.stageAspect || "auto"
+    },
+    playhead: video && isFinite(video.currentTime) ? video.currentTime : 0,
+    media: null
+  };
+}
+function prjFileName(){
+  const f = state.videoFile;
+  const base = f && f.name ? f.name.replace(/\.[^.]+$/, "") : "wordbox-project";
+  return base.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60) + ".wordbox";
+}
+async function saveProject(){
+  const prog = $("#prjProgress"), info = $("#prjInfo");
+  const includeMedia = !!($("#prjIncludeMedia") && $("#prjIncludeMedia").checked) && !!state.videoFile;
+  const header = prjSnapshot();
+  try {
+    if (prog) prog.classList.add("on");
+    if (info) info.textContent = includeMedia ? "Packing the project with its media\u2026" : "Packing the project\u2026";
+    let mediaBuf = null;
+    if (includeMedia){
+      const f = state.videoFile;
+      mediaBuf = await f.arrayBuffer();
+      header.media = { name: f.name, type: f.type || "", size: mediaBuf.byteLength };
+    }
+    const json = new TextEncoder().encode(JSON.stringify(header));
+    const magic = new TextEncoder().encode(PRJ_MAGIC);
+    const len = new Uint8Array(4);
+    new DataView(len.buffer).setUint32(0, json.length, true);
+    const parts = mediaBuf ? [magic, len, json, mediaBuf] : [magic, len, json];
+    const blob = new Blob(parts, { type: "application/octet-stream" });
+    download(blob, prjFileName());
+    if (info) info.textContent = "Saved " + prjFileName() + " \u2014 " + (blob.size/1048576).toFixed(1) +
+      " MB" + (includeMedia ? " (media included)." : " (settings only \u2014 open the media yourself next time).");
+  } catch (err){
+    console.error(err);
+    if (info) info.textContent = "Could not save the project: " + (err && err.message ? err.message : String(err));
+    alert("Could not save the project: " + (err && err.message ? err.message : String(err)));
+  } finally {
+    if (prog) setTimeout(() => prog.classList.remove("on"), 1200);
+  }
+}
+
+function applyProjectData(data){
+  state.orphans = [];
+  if (Array.isArray(data.captions)) state.captions = data.captions;
+  if (data.style) Object.assign(state.style, data.style);
+  if (data.project){
+    if (data.project.width)  state.style.projW = data.project.width;
+    if (data.project.height) state.style.projH = data.project.height;
+    if (data.project.stageAspect) state.style.stageAspect = data.project.stageAspect;
+  }
+  if (data.mode === "audio" || data.mode === "video") state.mode = data.mode;
+  normalizeStyle();
+  syncStyleToUI();
+  rebuildAll();
+  applyModeUI();
+  if (SW || (VW && VH)){ recomputeStage(); fitStage(); renderTimeline(); }
+  dirty = true;
+}
+
+async function readProjectFile(file){
+  const info = $("#prjInfo");
+  try {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const magic = new TextDecoder().decode(bytes.subarray(0, PRJ_MAGIC.length));
+    if (magic !== PRJ_MAGIC){
+      // Legacy settings-only project (.json from earlier versions).
+      const data = JSON.parse(new TextDecoder("utf-8").decode(bytes));
+      applyProjectData(data);
+      if (info) info.textContent = "Opened a settings-only project \u2014 import the media to go with it.";
+      return;
+    }
+    const hLen = new DataView(buf).getUint32(PRJ_MAGIC.length, true);
+    const hStart = PRJ_MAGIC.length + 4;
+    const data = JSON.parse(new TextDecoder("utf-8").decode(bytes.subarray(hStart, hStart + hLen)));
+    const mediaStart = hStart + hLen;
+    const hasMedia = data.media && bytes.byteLength > mediaStart;
+    if (hasMedia){
+      const type = data.media.type || (data.mode === "audio" ? "audio/mpeg" : "video/mp4");
+      const mediaFile = new File([buf.slice(mediaStart)], data.media.name || "project-media", { type });
+      // Load the media first, then apply the saved look once its metadata is in.
+      const once = () => {
+        video.removeEventListener("loadedmetadata", once);
+        applyProjectData(data);
+        if (data.playhead > 0 && isFinite(data.playhead)){
+          try { video.currentTime = Math.min(data.playhead, video.duration || data.playhead); } catch(e){}
+        }
+        if (info) info.textContent = "Opened " + file.name + " with its media.";
+      };
+      video.addEventListener("loadedmetadata", once);
+      PRJ_KEEP_FONT_SIZE = true;
+      loadVideoFile(mediaFile, (data.mode === "audio" || data.mode === "video") ? data.mode : "video");
+    } else {
+      applyProjectData(data);
+      if (info) info.textContent = "Opened " + file.name + " \u2014 settings only, so import the media to go with it.";
+    }
+  } catch (err){
+    console.error(err);
+    if (info) info.textContent = "Could not read that project file.";
+    alert("Could not read that project file.");
+  }
 }
 function loadProject(e){
-  const f = e.target.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = () => {
-    try {
-      const data = JSON.parse(r.result);
-      state.orphans = [];
-      if (data.captions) state.captions = data.captions;
-      if (data.style) Object.assign(state.style, data.style);
-      if (data.mode === "audio" || data.mode === "video") state.mode = data.mode;
-      normalizeStyle();
-      syncStyleToUI(); rebuildAll();
-      applyModeUI();
-      if (VW && VH){ recomputeStage(); fitStage(); }
-    } catch(err){ alert("Could not read that project file."); }
-  };
-  r.readAsText(f, "UTF-8");
+  const f = e.target.files[0];
   e.target.value = "";
+  if (f) readProjectFile(f);
 }
 
 /* =====================================================================
@@ -2737,7 +2976,11 @@ function normalizeStyle(){
   const d = {
     preset: "box", accentColor: "#ffd400", strokeColor: "#000000",
     strokeWidth: 0, revealMode: 2,
-    videoBgColor: "#000000", stageAspect: "auto"
+    videoBgColor: "#000000", stageAspect: "auto",
+    shadowType: "none", shadowDirection: 135, shadowDistance: 12, shadowOpacity: 70,
+    shadowBlur: 12, shadowColor: "#000000", shadowFade: "out",
+    shadowLayer: "above", shadowScope: "all", shadowBox: false,
+    projW: 1080, projH: 1920
   };
   for (const k in d) if (state.style[k] === undefined || state.style[k] === null) state.style[k] = d[k];
 }
@@ -2789,7 +3032,8 @@ function syncStyleToUI(){
   $("#maxWidth").value = st.maxWidthPct;
   $("#lineSpacing").value = st.lineSpacing;
   $("#maxLines").value = String(st.maxLines);
-  ["shadowType","shadowDirection","shadowDistance","shadowOpacity","shadowBlur","shadowColor","shadowFade"].forEach(k => { const el = $("#" + k); if (el) el.value = st[k]; });
+  ["shadowType","shadowDirection","shadowDistance","shadowOpacity","shadowBlur","shadowColor","shadowFade","shadowLayer","shadowScope"].forEach(k => { const el = $("#" + k); if (el) el.value = st[k]; });
+  { const el = $("#shadowBox"); if (el) el.checked = !!st.shadowBox; }
   $("#keepWordsTogether").checked = st.keepWordsTogether !== false;
   [["shadowDirection","°"],["shadowDistance",""],["shadowOpacity","%"],["shadowBlur",""]].forEach(([id,suffix]) => { const el = $("#"+id+"Val"); if(el) el.textContent = $("#"+id).value + suffix; });
   $("#maxWords").value = st.maxWords;
@@ -2813,6 +3057,7 @@ function syncStyleToUI(){
   $("#videoBgColor").value = st.videoBgColor;
   $("#videoBgColorHex").value = st.videoBgColor;
   $("#stageAspect").value = st.stageAspect;
+  syncProjSizeRow();
   syncColorInputs();
   $("#padXVal").textContent = $("#padX").value + "%";
   $("#padYVal").textContent = $("#padY").value + "%";
@@ -2828,6 +3073,154 @@ function syncStyleToUI(){
   renderPresetGrid();
   applyVideoBgToShell();
 }
+/* =====================================================================
+   PROJECT SIZE  (audio has no picture of its own, so the canvas is chosen)
+   ===================================================================== */
+const SIZE_PRESETS = [
+  { n: "Vertical \u00b7 9:16",  w: 1080, h: 1920 },
+  { n: "Widescreen \u00b7 16:9", w: 1920, h: 1080 },
+  { n: "Square \u00b7 1:1",      w: 1080, h: 1080 },
+  { n: "Portrait \u00b7 4:5",    w: 1080, h: 1350 },
+  { n: "Vertical HD \u00b7 9:16", w: 720,  h: 1280 },
+  { n: "Classic \u00b7 4:3",     w: 1440, h: 1080 }
+];
+function gcd(a, b){ return b ? gcd(b, a % b) : a; }
+function ratioText(w, h){
+  w = Math.round(w); h = Math.round(h);
+  if (!w || !h) return "";
+  const g = gcd(w, h) || 1;
+  let rw = w / g, rh = h / g;
+  if (rw > 40 || rh > 40){ return (w / h).toFixed(2) + " : 1"; }
+  return rw + ":" + rh;
+}
+let sizeDialogResolve = null;
+function renderSizeGrid(){
+  const g = $("#sizeGrid");
+  if (!g) return;
+  const w = parseInt($("#dlgW").value, 10) || 0, h = parseInt($("#dlgH").value, 10) || 0;
+  g.innerHTML = "";
+  SIZE_PRESETS.forEach(p => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "size-card" + (p.w === w && p.h === h ? " active" : "");
+    const th = document.createElement("span");
+    th.className = "size-thumb";
+    const long = 34, s2 = long / Math.max(p.w, p.h);
+    th.style.width  = Math.max(8, Math.round(p.w * s2)) + "px";
+    th.style.height = Math.max(8, Math.round(p.h * s2)) + "px";
+    const meta = document.createElement("span");
+    meta.className = "size-meta";
+    const nm = document.createElement("span"); nm.className = "size-name"; nm.textContent = p.n;
+    const dm = document.createElement("span"); dm.className = "size-dim"; dm.textContent = p.w + " \u00d7 " + p.h;
+    meta.appendChild(nm); meta.appendChild(dm);
+    b.appendChild(th); b.appendChild(meta);
+    b.addEventListener("click", () => {
+      $("#dlgW").value = p.w; $("#dlgH").value = p.h;
+      renderSizeGrid();
+    });
+    g.appendChild(b);
+  });
+  const rt = $("#dlgRatio");
+  if (rt) rt.textContent = ratioText(w, h);
+}
+function askProjectSize(opts){
+  const o = opts || {};
+  const back = $("#sizeModal");
+  if (!back) return Promise.resolve({ w: state.style.projW || 1080, h: state.style.projH || 1920 });
+  $("#sizeModalTitle").textContent = o.title || "Project size";
+  $("#sizeModalSub").textContent = o.sub ||
+    "Audio has no picture of its own, so pick the canvas your captions will be rendered on.";
+  $("#sizeOk").textContent = o.ok || "Create project";
+  $("#dlgW").value = o.w || state.style.projW || 1080;
+  $("#dlgH").value = o.h || state.style.projH || 1920;
+  renderSizeGrid();
+  back.hidden = false;
+  setTimeout(() => { const el = $("#dlgW"); if (el) el.focus(); }, 30);
+  return new Promise(resolve => { sizeDialogResolve = resolve; });
+}
+function closeSizeDialog(result){
+  const back = $("#sizeModal");
+  if (back) back.hidden = true;
+  const r = sizeDialogResolve;
+  sizeDialogResolve = null;
+  if (r) r(result);
+}
+function applyProjectSize(w, h){
+  state.style.projW = clamp(Math.round(w) || 1080, 64, 4096);
+  state.style.projH = clamp(Math.round(h) || 1920, 64, 4096);
+  state.style.stageAspect = "custom";
+  const sa = $("#stageAspect"); if (sa) sa.value = "custom";
+  syncProjSizeRow();
+  if (overlay){ recomputeStage(); fitStage(); renderTimeline(); }
+  dirty = true;
+}
+function syncProjSizeRow(){
+  const row = $("#projSizeRow");
+  if (!row) return;
+  row.classList.toggle("on", state.style.stageAspect === "custom");
+  const w = $("#projW"), h = $("#projH");
+  if (w) w.value = state.style.projW || 1080;
+  if (h) h.value = state.style.projH || 1920;
+}
+function setupSizeDialog(){
+  ["dlgW","dlgH"].forEach(id => { const el = $("#"+id); if (el) el.addEventListener("input", renderSizeGrid); });
+  const ok = $("#sizeOk"), cancel = $("#sizeCancel"), back = $("#sizeModal");
+  if (ok) ok.addEventListener("click", () => {
+    const w = clamp(parseInt($("#dlgW").value, 10) || 1080, 64, 4096);
+    const h = clamp(parseInt($("#dlgH").value, 10) || 1920, 64, 4096);
+    closeSizeDialog({ w, h });
+  });
+  if (cancel) cancel.addEventListener("click", () => closeSizeDialog(null));
+  if (back) back.addEventListener("mousedown", e => { if (e.target === back) closeSizeDialog(null); });
+  document.addEventListener("keydown", e => {
+    if (!sizeDialogResolve) return;
+    if (e.key === "Escape"){ e.preventDefault(); closeSizeDialog(null); }
+    else if (e.key === "Enter" && !/TEXTAREA/.test(document.activeElement.tagName)){
+      e.preventDefault();
+      const b = $("#sizeOk"); if (b) b.click();
+    }
+  });
+  ["projW","projH"].forEach(id => {
+    const el = $("#"+id);
+    if (el) el.addEventListener("change", () => {
+      applyProjectSize(parseInt($("#projW").value, 10), parseInt($("#projH").value, 10));
+    });
+  });
+  const pb = $("#btnProjSizeDlg");
+  if (pb) pb.addEventListener("click", async () => {
+    const r = await askProjectSize({
+      title: "Project size",
+      sub: "Pick the canvas this project renders on.",
+      ok: "Apply size",
+      w: state.style.projW, h: state.style.projH
+    });
+    if (r) applyProjectSize(r.w, r.h);
+  });
+}
+function isAudioFile(f){
+  if (!f) return false;
+  if (f.type && /^audio\//.test(f.type)) return true;
+  return /\.(mp3|m4a|aac|wav|flac|ogg|oga|opus|wma|aiff?|caf)$/i.test(f.name || "");
+}
+/* Importing audio on its own: ask for the canvas first, then build the project. */
+async function importMediaFile(file, mode){
+  if (!file) return;
+  const audioOnly = isAudioFile(file);
+  const wantMode = audioOnly ? "audio" : (mode || "video");
+  if (audioOnly || wantMode === "audio"){
+    const r = await askProjectSize({
+      title: audioOnly ? "New audio project" : "New audio-only project",
+      sub: audioOnly
+        ? "\u201c" + file.name + "\u201d has no picture, so choose the frame your captions are rendered on. You can change it later in Style \u2192 Stage."
+        : "This project keeps only the sound, so choose the frame your captions are rendered on.",
+      ok: "Create project"
+    });
+    if (!r) return;               // cancelled — nothing is loaded
+    applyProjectSize(r.w, r.h);
+  }
+  loadVideoFile(file, wantMode);
+}
+
 function setupUI(){
   $$("#tabs button").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2843,14 +3236,19 @@ function setupUI(){
   $("#btnPickAudio").addEventListener("click", () => pickWithMode("audio"));
   $("#btnPickVideo").addEventListener("click", () => pickWithMode("video"));
   $("#btnPickAudioEmpty").addEventListener("click", () => pickWithMode("audio"));
-  vi.addEventListener("change", e => { if (e.target.files[0]) loadVideoFile(e.target.files[0], pendingMode); });
+  vi.addEventListener("change", e => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (f) importMediaFile(f, pendingMode);
+  });
   const shell = $("#videoShell");
   ["dragenter","dragover"].forEach(ev => shell.addEventListener(ev, e => { e.preventDefault(); shell.classList.add("drag"); }));
   ["dragleave","drop"].forEach(ev => shell.addEventListener(ev, e => { e.preventDefault(); shell.classList.remove("drag"); }));
   shell.addEventListener("drop", e => {
     const f = e.dataTransfer.files[0]; if (!f) return;
     if (/\.(srt|vtt|txt)$/i.test(f.name)) readSubtitleFile(f);
-    else loadVideoFile(f, pendingMode);
+    else if (/\.(wordbox|json)$/i.test(f.name)) readProjectFile(f);
+    else importMediaFile(f, pendingMode);
   });
   $$("#modeSwitch button").forEach(b => {
     b.addEventListener("click", () => {
@@ -2930,8 +3328,18 @@ function setupUI(){
     d.addEventListener("click", () => applyBg(p.c));
     bgWrap.appendChild(d);
   });
-  $("#stageAspect").addEventListener("change", function(){
+  $("#stageAspect").addEventListener("change", async function(){
+    if (this.value === "custom"){
+      const r = await askProjectSize({
+        title: "Project size", sub: "Pick the canvas this project renders on.",
+        ok: "Apply size", w: state.style.projW, h: state.style.projH
+      });
+      if (!r){ this.value = state.style.stageAspect; return; }
+      applyProjectSize(r.w, r.h);
+      return;
+    }
     state.style.stageAspect = this.value;
+    syncProjSizeRow();
     if (VW && VH){ recomputeStage(); fitStage(); renderTimeline(); }
     dirty = true;
   });
@@ -2987,7 +3395,8 @@ function setupUI(){
   $("#maxWidth").addEventListener("input", function(){ $("#maxWidthVal").textContent = this.value + "%"; });
   $("#lineSpacing").addEventListener("input", function(){ $("#lineSpacingVal").textContent = parseFloat(this.value).toFixed(2); });
   $("#maxLines").addEventListener("change", function(){ state.style.maxLines = parseInt(this.value, 10); rebuildSegments(); });
-  ["shadowType","shadowFade","shadowColor"].forEach(id => $("#"+id).addEventListener("input", function(){ state.style[id] = this.value; rebuildSegments(); }));
+  ["shadowType","shadowFade","shadowColor","shadowLayer","shadowScope"].forEach(id => { const el = $("#"+id); if (el) el.addEventListener("input", function(){ state.style[id] = this.value; rebuildSegments(); }); });
+  { const el = $("#shadowBox"); if (el) el.addEventListener("change", function(){ state.style.shadowBox = this.checked; rebuildSegments(); }); }
   [["shadowDirection","shadowDirection","°"],["shadowDistance","shadowDistance",""],["shadowOpacity","shadowOpacity","%"],["shadowBlur","shadowBlur",""]].forEach(([id,key,suffix]) => {
     $("#"+id).addEventListener("input", function(){ state.style[key] = parseFloat(this.value); $("#"+id+"Val").textContent = this.value + suffix; rebuildSegments(); });
   });
@@ -3060,6 +3469,7 @@ function readSubtitleFile(file){
 function boot(){
   normalizeStyle();
   setupUI();
+  setupSizeDialog();
   syncStyleToUI();
   applyVideoBgToShell();
   applyModeUI();

@@ -246,3 +246,35 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 }
 .pc-name{font-size:10.5px;color:var(--txt-2);letter-spacing:.02em;text-align:center}
 .preset-card.active .pc-name{color:var(--txt)}
+
+/* ---------------------------------------------------------------
+   Project-size dialog (shown when importing audio with no picture)
+   --------------------------------------------------------------- */
+.modal-back{
+  position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:18px;
+  background:rgba(5,7,12,.72);backdrop-filter:blur(6px);
+}
+.modal-back[hidden]{display:none}
+.modal{
+  width:100%;max-width:420px;background:var(--panel);border:1px solid var(--line-2);
+  border-radius:var(--r);box-shadow:var(--shadow);padding:18px;display:flex;flex-direction:column;gap:12px;
+}
+.modal h3{font-size:16px;font-weight:800;letter-spacing:-.01em}
+.modal-sub{font-size:12px;color:var(--txt-2);line-height:1.5}
+.modal-actions{margin-top:2px}
+.size-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.size-card{
+  display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-sm);
+  background:var(--bg-2);border:1px solid var(--line);transition:.15s;text-align:left;
+}
+.size-card:hover{border-color:var(--line-2);background:#1a2030}
+.size-card.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(91,140,255,.18);background:rgba(91,140,255,.08)}
+.size-thumb{
+  flex:0 0 auto;background:linear-gradient(160deg,#39456b,#232a3b);
+  border:1px solid var(--line-2);border-radius:3px;
+}
+.size-meta{display:flex;flex-direction:column;gap:1px;min-width:0}
+.size-name{font-size:12px;font-weight:700;white-space:nowrap}
+.size-dim{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+#projSizeRow{display:none}
+#projSizeRow.on{display:flex}

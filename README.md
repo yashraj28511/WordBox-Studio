@@ -28,7 +28,25 @@ This is the website version of WordBox Studio. Transcription runs through Groq's
 - **429**: the provider rate limit or quota may have been reached; wait and check your provider dashboard.
 - **Could not read audio**: use MP4 (H.264/AAC), MOV, WebM, MP3, M4A or WAV.
 
+## Saving and reopening a project
+
+**Export → Project file → Save project to my PC** writes a single `.wordbox` file containing the captions, every style and animation setting, the project size, the playhead position and — while *Include the video / audio file* is ticked — the media itself. **Open project…** (or dropping the `.wordbox` file on the stage) restores the whole project, media included, so nothing has to be re-imported or re-styled.
+
+Untick *Include the video / audio file* for a small settings-only file (a few KB) to pair with the original media by hand. Project files saved by earlier versions (`.json`) still open.
+
+## Project size for audio
+
+Importing an audio file — or choosing **Audio only** — opens a project-size dialog first: 1080×1920, 1920×1080, 1080×1080, 1080×1350, 720×1280, 1440×1080, or any custom width × height up to 4096. The chosen size becomes the canvas captions are rendered and exported on, and it can be changed later in **Style → Stage &amp; background → Size**.
+
 ## Changelog
+
+- **New: the text shadow can sit above the caption box.** *Style → Text shadow → Layer* chooses **Above the box** (the default) or **Behind the box**. Above means the box — including an animated box sliding, popping or gliding in — is painted *behind* the shadow, while the letters stay crisp on top: the shadow is drawn on its own layer, the glyph shapes are cut back out of it, and the layer is composited over the finished caption. *Scope* limits the shadow to the spoken word, and *Box casts its own shadow too* gives the caption box a matching shadow. Every existing shadow setting (drop / long, direction, distance, opacity, blur, color, fade) applies to both layers, in the preview and in PNG and video export.
+
+- **New: save a project to your PC and reopen it later** — a single `.wordbox` file with the captions, styling, project size and the media itself. See *Saving and reopening a project* above.
+
+- **New: importing audio asks for the project size** before the project is created. See *Project size for audio* above.
+
+- **Fixed: an audio-only file rendered nothing.** The preview loop skipped every frame when the source had no video track (`videoWidth` was 0), so captions never appeared for a plain MP3/M4A/WAV import. The loop now follows the stage size instead, and a file with no picture stays locked to audio mode.
 
 - **Fixed: exported video looked zoomed-in / cropped.** `paintStage` now scales the background and video by the export scale, the same way captions already were.
 
