@@ -38,7 +38,19 @@ Untick *Include the video / audio file* for a small settings-only file (a few KB
 
 Importing an audio file — or choosing **Audio only** — opens a project-size dialog first: 1080×1920, 1920×1080, 1080×1080, 1080×1350, 720×1280, 1440×1080, or any custom width × height up to 4096. The chosen size becomes the canvas captions are rendered and exported on, and it can be changed later in **Style → Stage &amp; background → Size**.
 
+## Spelling — US / UK
+
+**Edit → Spelling** checks every caption against American or British spelling and lists what it would change (colour → color, realise → realize, centre → center, travelled → traveled, …) before touching anything. **Apply changes** rewrites the captions; **Undo** puts them back. *Fix new captions automatically* runs the same pass right after a transcription or a subtitle import.
+
+The pass runs entirely in the browser — no network, no API key. It is deliberately one-directional where English is ambiguous: `licence` becomes `license` for US English, but `license` is left alone going the other way, because British English keeps it as the verb. The same care applies to `meter` / `metre`, `program` / `programme`, `story` / `storey` and `check` / `cheque`. Word case, punctuation and `*emphasis*` markers are preserved, and hyphenated compounds are converted piece by piece. The optional tidy pass collapses double spaces, removes a space before punctuation and capitalises a lone “i”. The word lists live in `js/spelling.js`.
+
 ## Changelog
+
+- **New: padding per side.** *Style → Box shape* now has **Pad top / bottom / left / right** instead of one X and one Y slider, with *Link opposite sides* to move them in pairs and a Reset. Padding stays a share of the font size, so it scales with the caption. **Box height** adds a second way to solve the same problem: *Fit the words* measures the letters actually on screen, so an ALL-CAPS line is evenly centred instead of carrying the font's unused descender space under it, while *Font metrics* keeps the old behaviour.
+
+- **New: the shadow baked into a caption style can be switched off.** *Style → Text shadow → Keep the shadow built into the caption style*. TikTok, Rebel and Y2K paint an offset copy of the word, and Shadow, Gradient, Cinematic, Chalk and Neon paint their own glow or drop shadow. Untick the box and those disappear, leaving the caption to the Text shadow controls below (or to no shadow at all).
+
+- **New: US / UK spelling check** for all captions, with a preview of the changes, Apply, Undo and an auto-fix switch. See *Spelling — US / UK* above.
 
 - **New: the text shadow can sit above the caption box.** *Style → Text shadow → Layer* chooses **Above the box** (the default) or **Behind the box**. Above means the box — including an animated box sliding, popping or gliding in — is painted *behind* the shadow, while the letters stay crisp on top: the shadow is drawn on its own layer, the glyph shapes are cut back out of it, and the layer is composited over the finished caption. *Scope* limits the shadow to the spoken word, and *Box casts its own shadow too* gives the caption box a matching shadow. Every existing shadow setting (drop / long, direction, distance, opacity, blur, color, fade) applies to both layers, in the preview and in PNG and video export.
 

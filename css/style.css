@@ -278,3 +278,17 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 .size-dim{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 #projSizeRow{display:none}
 #projSizeRow.on{display:flex}
+
+/* Spelling check results */
+.sp-result{
+  font-size:11.5px;color:var(--txt-2);line-height:1.55;background:var(--bg-2);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 10px;
+  max-height:190px;overflow:auto;
+}
+.sp-result b{color:var(--txt)}
+.sp-list{display:flex;flex-direction:column;gap:3px;margin-top:7px}
+.sp-item{display:flex;align-items:baseline;gap:6px;font-size:11.5px}
+.sp-from{color:#ff9fb0;text-decoration:line-through}
+.sp-to{color:#5ee08c;font-weight:600}
+.sp-n{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+.sp-ok{color:#5ee08c}

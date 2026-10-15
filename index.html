@@ -188,6 +188,28 @@
             <input type="color" id="emBoxColor" value="#ffd400">
           </div>
         </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Spelling — US / UK</label>
+          <div class="row">
+            <select id="spVariant" style="flex:1">
+              <option value="us">American (US) spelling</option>
+              <option value="uk">British (UK) spelling</option>
+            </select>
+            <button class="btn tiny" id="btnSpCheck">Check</button>
+          </div>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="spTidy" checked> Tidy spacing and a lone “i”</label>
+          </div>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="spAuto"> Fix new captions automatically</label>
+          </div>
+          <div class="sp-result" id="spResult">Checks every caption for spellings that belong to the other variety of English — colour / color, realise / realize, centre / center — and lists what it would change before anything is touched.</div>
+          <div class="row" id="spActions" hidden>
+            <button class="btn primary grow" id="btnSpApply">Apply changes</button>
+            <button class="btn ghost" id="btnSpUndo" hidden>Undo</button>
+          </div>
+        </div>
       </div>
 
       <!-- STYLE -->
@@ -295,6 +317,10 @@
         <div class="field">
           <label>Text shadow</label>
           <div class="row">
+            <label class="chk"><input type="checkbox" id="presetShadow" checked> Keep the shadow built into the caption style</label>
+          </div>
+          <div class="hint">Styles like TikTok, Rebel, Y2K, Shadow, Gradient, Cinematic, Chalk and Neon paint their own shadow or offset copy. Untick this to drop it and use only the shadow you set below.</div>
+          <div class="row">
             <span class="mini" style="width:96px">Shadow type</span>
             <select id="shadowType" style="flex:1">
               <option value="none">Off</option><option value="drop">Drop shadow</option><option value="long">Long shadow</option>
@@ -323,15 +349,37 @@
         <div class="field">
           <label>Box shape</label>
           <div class="row">
-            <span class="mini" style="width:70px">Padding X</span>
-            <input type="range" id="padX" min="0" max="60" value="16">
-            <span class="mini" id="padXVal" style="width:34px;text-align:right">16%</span>
+            <label class="chk"><input type="checkbox" id="padLink" checked> Link opposite sides</label>
+            <button class="btn tiny ghost" id="btnPadReset" style="margin-left:auto">Reset</button>
           </div>
           <div class="row">
-            <span class="mini" style="width:70px">Padding Y</span>
-            <input type="range" id="padY" min="0" max="60" value="10">
-            <span class="mini" id="padYVal" style="width:34px;text-align:right">10%</span>
+            <span class="mini" style="width:70px">Pad top</span>
+            <input type="range" id="padT" min="0" max="80" value="10">
+            <span class="mini" id="padTVal" style="width:34px;text-align:right">10%</span>
           </div>
+          <div class="row">
+            <span class="mini" style="width:70px">Pad bottom</span>
+            <input type="range" id="padB" min="0" max="80" value="10">
+            <span class="mini" id="padBVal" style="width:34px;text-align:right">10%</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:70px">Pad left</span>
+            <input type="range" id="padL" min="0" max="80" value="16">
+            <span class="mini" id="padLVal" style="width:34px;text-align:right">16%</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:70px">Pad right</span>
+            <input type="range" id="padR" min="0" max="80" value="16">
+            <span class="mini" id="padRVal" style="width:34px;text-align:right">16%</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:70px">Box height</span>
+            <select id="boxFit" style="flex:1">
+              <option value="font">Font metrics (room for descenders)</option>
+              <option value="text">Fit the words (evenly centred)</option>
+            </select>
+          </div>
+          <div class="hint">Padding is a share of the font size, so it scales with the caption. <b>Fit the words</b> measures the letters actually on screen, which evenly centres an ALL-CAPS line instead of leaving the descender gap under it.</div>
           <div class="row">
             <span class="mini" style="width:70px">Corner</span>
             <input type="range" id="corner" min="0" max="80" value="12">

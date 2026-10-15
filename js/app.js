@@ -1,3 +1,5 @@
+import { convertCaption } from "./spelling.js";
+
 (function(){
 "use strict";
 
@@ -26,6 +28,8 @@ const state = {
     accentColor: "#ffd400", strokeColor: "#000000", strokeWidth: 0,
     lineSpacing: 1.25, maxWidthPct: 80, yPct: 82,
     padXr: 0.16, padYr: 0.10, corner: 12,
+    padTr: 0.10, padRr: 0.16, padBr: 0.10, padLr: 0.16, padLink: true,
+    boxFit: "font", presetShadow: true,
     maxWords: 0, wordsMode: 0, maxLines: 0, revealMode: 2,
     boxMode: 0, animIn: "pop",
     shadowType: "none", shadowDirection: 135, shadowDistance: 12, shadowOpacity: 70,
@@ -462,7 +466,7 @@ function buildSegments(captions, st){
       const measureCanvas = document.createElement("canvas");
       const mctx = measureCanvas.getContext("2d");
       const fs = st.fontSize, maxW = (SW || VW || 1080) * st.maxWidthPct / 100;
-      const pad = fs * st.padXr * 2, gap = fs * 0.10;
+      const pad = fs * (padRatio(st, "L") + padRatio(st, "R")), gap = fs * 0.10;
       const widths = clean.map((word, i) => { mctx.font = fontStr(st, fs, pe.em[i]); return mctx.measureText(word).width + pad; });
       const groups = []; let group = [], groupW = 0;
       for (let i = 0; i < clean.length; i++){
@@ -797,6 +801,29 @@ const RENDERERS = {
   redBar: renderRedBar, whiteBar: renderWhiteBar, stacked: renderStacked
 };
 
+/* Padding is stored per side; older projects and the presets only carry padXr / padYr,
+   so fall back to those whenever a side has not been set. */
+function padRatio(st, side){
+  const v = st["pad" + side + "r"];
+  if (typeof v === "number") return v;
+  return (side === "L" || side === "R") ? (st.padXr || 0) : (st.padYr || 0);
+}
+/* Several presets paint their own drop shadow or offset copy. This switch turns those
+   off so the caption can use the Text shadow controls instead (or no shadow at all). */
+function presetShadowOn(st){ return st.presetShadow !== false; }
+function setPresetShadow(ctx, st, color, blur, ox, oy){
+  if (!presetShadowOn(st)){
+    ctx.shadowColor = "rgba(0,0,0,0)"; ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+    return;
+  }
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur || 0;
+  ctx.shadowOffsetX = ox || 0;
+  ctx.shadowOffsetY = oy || 0;
+}
+function presetOffset(st, v){ return presetShadowOn(st) ? v : 0; }
+
 function strokeW(st, fs){ return fs * (st.strokeWidth || 0) / 100; }
 function accentOf(st){ return st.accentColor || "#ffd400"; }
 function strokeOf(st){ return st.strokeColor || "#000000"; }
@@ -839,8 +866,13 @@ function activeWordIndex(seg, t){
 /* ---------- shared layout ---------- */
 function layoutSegment(ctx, W, H, st, seg){
   const fs = st.fontSize;
-  const padX = fs * st.padXr;
-  const padY = fs * st.padYr;
+  const padL = fs * padRatio(st, "L");
+  const padR = fs * padRatio(st, "R");
+  const padT = fs * padRatio(st, "T");
+  const padB = fs * padRatio(st, "B");
+  // padX / padY stay as the "text inset" and "average vertical pad" the renderers expect.
+  const padX = padL;
+  const padY = (padT + padB) / 2;
   const gap  = fs * 0.10;
   const lineH = fs * st.lineSpacing;
   const maxW = W * st.maxWidthPct / 100;
@@ -853,13 +885,29 @@ function layoutSegment(ctx, W, H, st, seg){
     textW[i] = ctx.measureText(seg.words[i]).width;
   }
   ctx.font = fontStr(st, fs, false);
-  const mm = ctx.measureText("Hxg");
-  const asc  = mm.actualBoundingBoxAscent  || fs * 0.75;
-  const desc = mm.actualBoundingBoxDescent || fs * 0.25;
-  const boxH = asc + desc + padY * 2;
-  const boxTopOff = asc + padY;
+  let asc, desc;
+  if (st.boxFit === "text"){
+    // Measure the words actually on screen, so an ALL-CAPS line gets an evenly
+    // balanced box instead of carrying the font's unused descender space.
+    let a = 0, d = 0;
+    for (let i = 0; i < n; i++){
+      ctx.font = fontStr(st, fs, seg.em[i]);
+      const m = ctx.measureText(seg.words[i]);
+      a = Math.max(a, m.actualBoundingBoxAscent  || fs * 0.72);
+      d = Math.max(d, m.actualBoundingBoxDescent || 0);
+    }
+    ctx.font = fontStr(st, fs, false);
+    asc = a || fs * 0.72;
+    desc = d;
+  } else {
+    const mm = ctx.measureText("Hxg");
+    asc  = mm.actualBoundingBoxAscent  || fs * 0.75;
+    desc = mm.actualBoundingBoxDescent || fs * 0.25;
+  }
+  const boxH = asc + desc + padT + padB;
+  const boxTopOff = asc + padT;
   const widths = new Array(n);
-  for (let i = 0; i < n; i++) widths[i] = textW[i] + padX * 2;
+  for (let i = 0; i < n; i++) widths[i] = textW[i] + padL + padR;
   const lineW = idx => {
     let s = 0;
     for (const i of idx) s += widths[i];
@@ -899,7 +947,7 @@ function layoutSegment(ctx, W, H, st, seg){
     for (const k of idxs){ const w = widths[k]; rects.push({ x, w }); x += w + gap; }
     lineData.push({ idxs, total, x0, rects, baseline, boxTop });
   }
-  return { fs, padX, padY, gap, lineH, maxW, baseY, n, textW, asc, desc,
+  return { fs, padX, padY, padL, padR, padT, padB, gap, lineH, maxW, baseY, n, textW, asc, desc,
            boxH, boxTopOff, widths, lines: lineData, nL };
 }
 
@@ -1292,8 +1340,7 @@ function renderShadow(ctx, W, H, t, st, seg, L){
       const isAct = (i === act);
       ctx.save();
       ctx.font = fontStr(st, fs, seg.em[i]);
-      ctx.shadowColor = "rgba(0,0,0,0.85)";
-      ctx.shadowBlur = fs * 0.18; ctx.shadowOffsetY = fs * 0.05;
+      setPresetShadow(ctx, st, "rgba(0,0,0,0.85)", fs * 0.18, 0, fs * 0.05);
       ctx.fillStyle = isAct ? accentOf(st) : st.textColor;
       wordXform(ctx, r, boxTop, boxH, isAct ? 1.08 : 1, 0, 0, 0, () => {
         ctx.fillText(seg.words[i], r.x + padX, baseline);
@@ -1315,7 +1362,7 @@ function renderNeon(ctx, W, H, t, st, seg, L){
       ctx.save();
       ctx.font = fontStr(st, fs, seg.em[i]);
       ctx.lineJoin = "round";
-      ctx.shadowColor = glow; ctx.shadowBlur = fs * 0.60;
+      setPresetShadow(ctx, st, glow, fs * 0.60, 0, 0);
       ctx.fillStyle = isAct ? accentOf(st) : st.textColor;
       ctx.fillText(seg.words[i], r.x + padX, baseline);
       ctx.fillText(seg.words[i], r.x + padX, baseline);
@@ -1404,7 +1451,7 @@ function renderTiktok(ctx, W, H, t, st, seg, L){
       const i = idxs[k], r = rects[k];
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
       const isAct = (i === act);
-      const off = fs * 0.085;
+      const off = presetOffset(st, fs * 0.085);
       ctx.font = fontStr(st, fs, seg.em[i]);
       wordXform(ctx, r, boxTop, boxH, isAct ? 1.12 : 1, 0, 0, 0, () => {
         ctx.fillStyle = isAct ? "#ffffff" : accentOf(st);
@@ -1431,8 +1478,7 @@ function renderGradient(ctx, W, H, t, st, seg, L){
       const isAct = (i === act);
       ctx.save();
       ctx.font = fontStr(st, fs, seg.em[i]);
-      ctx.shadowColor = "rgba(0,0,0,.55)";
-      ctx.shadowBlur = fs * 0.22; ctx.shadowOffsetY = fs * 0.04;
+      setPresetShadow(ctx, st, "rgba(0,0,0,.55)", fs * 0.22, 0, fs * 0.04);
       ctx.fillStyle = isAct ? accentOf(st) : g;
       wordXform(ctx, r, boxTop, boxH, isAct ? 1.08 : 1, 0, 0, 0, () => {
         ctx.fillText(seg.words[i], r.x + padX, baseline);
@@ -1452,7 +1498,7 @@ function renderCinematic(ctx, W, H, t, st, seg, L){
       const isAct = (i === act);
       ctx.save();
       ctx.font = fontStr(st, fs, seg.em[i]);
-      ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = fs * 0.25;
+      setPresetShadow(ctx, st, "rgba(0,0,0,.6)", fs * 0.25, 0, 0);
       ctx.fillStyle = isAct ? accentOf(st) : st.textColor;
       ctx.fillText(seg.words[i], r.x + padX, baseline);
       ctx.restore();
@@ -1469,7 +1515,7 @@ function renderRebel(ctx, W, H, t, st, seg, L){
       const i = idxs[k], r = rects[k];
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
       const isAct = (i === act);
-      const off = fs * 0.06;
+      const off = presetOffset(st, fs * 0.06);
       ctx.font = fontStr(st, fs, seg.em[i]);
       wordXform(ctx, r, boxTop, boxH, isAct ? 1.10 : 1, 0, 0, 0, () => {
         ctx.fillStyle = strokeOf(st);
@@ -1493,10 +1539,13 @@ function renderY2k(ctx, W, H, t, st, seg, L){
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
       const isAct = (i === act);
       ctx.font = fontStr(st, fs, seg.em[i]);
-      ctx.fillStyle = "#ff00ff";
-      ctx.fillText(seg.words[i], r.x + padX + 1.5, baseline + 1.5);
-      ctx.fillStyle = "#00ffff";
-      ctx.fillText(seg.words[i], r.x + padX - 1.5, baseline - 1.5);
+      const y2kOff = presetOffset(st, Math.max(1.5, fs * 0.022));
+      if (y2kOff){
+        ctx.fillStyle = "#ff00ff";
+        ctx.fillText(seg.words[i], r.x + padX + y2kOff, baseline + y2kOff);
+        ctx.fillStyle = "#00ffff";
+        ctx.fillText(seg.words[i], r.x + padX - y2kOff, baseline - y2kOff);
+      }
       ctx.fillStyle = isAct ? accentOf(st) : st.textColor;
       ctx.fillText(seg.words[i], r.x + padX, baseline);
     }
@@ -1513,7 +1562,7 @@ function renderChalk(ctx, W, H, t, st, seg, L){
       const isAct = (i === act);
       ctx.save();
       ctx.font = fontStr(st, fs, seg.em[i]);
-      ctx.shadowColor = "rgba(255,255,255,.4)"; ctx.shadowBlur = fs * 0.15;
+      setPresetShadow(ctx, st, "rgba(255,255,255,.4)", fs * 0.15, 0, 0);
       ctx.fillStyle = isAct ? accentOf(st) : st.textColor;
       ctx.fillText(seg.words[i], r.x + padX, baseline);
       ctx.restore();
@@ -2437,6 +2486,7 @@ async function runTranscription(){
     state.orphans = [];
     state.captions = captions;
     rebuildAll();
+    spAutoApply();
     status.textContent = `Done — ${captions.length} captions, ${chunks.length} words transcribed in ${elapsed}s.`;
     bar.style.width = "100%";
     $$("#tabs button").forEach(b => b.classList.remove("active"));
@@ -2961,6 +3011,62 @@ function bindColor(colorId, hexId, key){
     state.style[key] = v.toLowerCase(); c.value = v.toLowerCase(); rebuildSegments();
   });
 }
+const PAD_SIDES = ["T","R","B","L"];
+const PAD_OPPOSITE = { T:"B", B:"T", L:"R", R:"L" };
+function syncPaddingUI(){
+  const st = state.style;
+  PAD_SIDES.forEach(side => {
+    const el = $("#pad" + side), lab = $("#pad" + side + "Val");
+    if (!el) return;
+    const pct = Math.round(padRatio(st, side) * 100);
+    el.value = pct;
+    if (lab) lab.textContent = pct + "%";
+  });
+  const link = $("#padLink"); if (link) link.checked = st.padLink !== false;
+  const fit = $("#boxFit"); if (fit) fit.value = st.boxFit || "font";
+  const ps = $("#presetShadow"); if (ps) ps.checked = st.presetShadow !== false;
+}
+function setPad(side, pct){
+  const st = state.style;
+  const v = clamp(pct, 0, 80) / 100;
+  st["pad" + side + "r"] = v;
+  if (st.padLink !== false) st["pad" + PAD_OPPOSITE[side] + "r"] = v;
+  // Keep the legacy pair in step, so older exports and the fitting pass agree.
+  st.padXr = (padRatio(st, "L") + padRatio(st, "R")) / 2;
+  st.padYr = (padRatio(st, "T") + padRatio(st, "B")) / 2;
+  syncPaddingUI();
+  rebuildSegments();
+}
+function setupPadding(){
+  PAD_SIDES.forEach(side => {
+    const el = $("#pad" + side);
+    if (el) el.addEventListener("input", function(){ setPad(side, parseFloat(this.value)); });
+  });
+  const link = $("#padLink");
+  if (link) link.addEventListener("change", function(){
+    state.style.padLink = this.checked;
+    if (this.checked){
+      // Adopt the larger of each pair so nothing jumps inwards unexpectedly.
+      const x = Math.max(padRatio(state.style, "L"), padRatio(state.style, "R"));
+      const y = Math.max(padRatio(state.style, "T"), padRatio(state.style, "B"));
+      state.style.padLr = state.style.padRr = x;
+      state.style.padTr = state.style.padBr = y;
+      state.style.padXr = x; state.style.padYr = y;
+      syncPaddingUI(); rebuildSegments();
+    }
+  });
+  const reset = $("#btnPadReset");
+  if (reset) reset.addEventListener("click", () => {
+    const st = state.style;
+    st.padTr = st.padBr = 0.10; st.padLr = st.padRr = 0.16;
+    st.padXr = 0.16; st.padYr = 0.10;
+    syncPaddingUI(); rebuildSegments();
+  });
+  const fit = $("#boxFit");
+  if (fit) fit.addEventListener("change", function(){ state.style.boxFit = this.value; rebuildSegments(); });
+  const ps = $("#presetShadow");
+  if (ps) ps.addEventListener("change", function(){ state.style.presetShadow = this.checked; rebuildSegments(); });
+}
 function syncColorInputs(){
   $("#textColor").value = state.style.textColor;
   $("#textColorHex").value = state.style.textColor;
@@ -2980,9 +3086,16 @@ function normalizeStyle(){
     shadowType: "none", shadowDirection: 135, shadowDistance: 12, shadowOpacity: 70,
     shadowBlur: 12, shadowColor: "#000000", shadowFade: "out",
     shadowLayer: "above", shadowScope: "all", shadowBox: false,
-    projW: 1080, projH: 1920
+    projW: 1080, projH: 1920, padLink: true, boxFit: "font", presetShadow: true,
+    padXr: 0.16, padYr: 0.10
   };
   for (const k in d) if (state.style[k] === undefined || state.style[k] === null) state.style[k] = d[k];
+  // Projects and presets written before per-side padding only carry padXr / padYr.
+  const st = state.style;
+  if (typeof st.padTr !== "number") st.padTr = st.padYr;
+  if (typeof st.padBr !== "number") st.padBr = st.padYr;
+  if (typeof st.padLr !== "number") st.padLr = st.padXr;
+  if (typeof st.padRr !== "number") st.padRr = st.padXr;
 }
 function renderPresetGrid(){
   const g = $("#presetGrid");
@@ -3008,7 +3121,12 @@ function applyPreset(id){
   const p = PRESETS.find(x => x.id === id);
   if (!p) return;
   state.style.preset = id;
-  if (p.apply) Object.assign(state.style, p.apply);
+  if (p.apply){
+    Object.assign(state.style, p.apply);
+    // A preset speaks in X/Y padding, so push that onto the four sides it replaces.
+    if (typeof p.apply.padXr === "number"){ state.style.padLr = state.style.padRr = p.apply.padXr; }
+    if (typeof p.apply.padYr === "number"){ state.style.padTr = state.style.padBr = p.apply.padYr; }
+  }
   normalizeStyle();
   syncStyleToUI();
   if (document.fonts && document.fonts.load){
@@ -3025,8 +3143,7 @@ function syncStyleToUI(){
   $("#fontSizeNum").value = st.fontSize;
   $("#fsLabel").textContent = st.fontSize + " px";
   $("#uppercase").checked = st.uppercase;
-  $("#padX").value = Math.round(st.padXr * 100);
-  $("#padY").value = Math.round(st.padYr * 100);
+  syncPaddingUI();
   $("#corner").value = st.corner;
   $("#yPos").value = st.yPct;
   $("#maxWidth").value = st.maxWidthPct;
@@ -3059,8 +3176,6 @@ function syncStyleToUI(){
   $("#stageAspect").value = st.stageAspect;
   syncProjSizeRow();
   syncColorInputs();
-  $("#padXVal").textContent = $("#padX").value + "%";
-  $("#padYVal").textContent = $("#padY").value + "%";
   $("#cornerVal").textContent = $("#corner").value;
   $("#yPosVal").textContent = $("#yPos").value + "%";
   $("#maxWidthVal").textContent = $("#maxWidth").value + "%";
@@ -3221,6 +3336,137 @@ async function importMediaFile(file, mode){
   loadVideoFile(file, wantMode);
 }
 
+/* =====================================================================
+   SPELLING — US / UK
+   ===================================================================== */
+let spPending = null;     // the scan waiting to be applied
+let spUndoSnapshot = null;
+
+function spVariantName(v){ return v === "uk" ? "British (UK)" : "American (US)"; }
+
+function spScan(){
+  const variant = ($("#spVariant") || {}).value || "us";
+  const tidy = !!($("#spTidy") && $("#spTidy").checked);
+  const texts = [], counts = new Map();
+  let capsTouched = 0, tidied = 0;
+  state.captions.forEach((c, i) => {
+    const r = convertCaption(c.text, variant, { tidy });
+    texts[i] = r.text;
+    if (r.text !== c.text) capsTouched++;
+    for (const ch of r.changes){
+      if (ch.tidy){ tidied++; continue; }
+      const key = ch.from.toLowerCase() + "\u2192" + ch.to.toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  });
+  return { variant, texts, counts, capsTouched, tidied };
+}
+
+function spRender(scan){
+  const box = $("#spResult"), actions = $("#spActions"), undoBtn = $("#btnSpUndo");
+  if (!box) return;
+  if (!state.captions.length){
+    box.textContent = "No captions to check yet.";
+    if (actions) actions.hidden = true;
+    return;
+  }
+  if (!scan.capsTouched){
+    box.innerHTML = '<span class="sp-ok">\u2713 Every caption already matches ' +
+      spVariantName(scan.variant) + ' spelling.</span>';
+    if (actions) actions.hidden = !(spUndoSnapshot);
+    if (undoBtn) undoBtn.hidden = !spUndoSnapshot;
+    spPending = null;
+    return;
+  }
+  const rows = Array.from(scan.counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, n]) => {
+      const [from, to] = key.split("\u2192");
+      return '<div class="sp-item"><span class="sp-from">' + from +
+             '</span><span>\u2192</span><span class="sp-to">' + to +
+             '</span><span class="sp-n">\u00d7' + n + '</span></div>';
+    }).join("");
+  box.innerHTML = '<b>' + scan.capsTouched + ' caption' + (scan.capsTouched === 1 ? "" : "s") +
+    '</b> would change to ' + spVariantName(scan.variant) + ' spelling' +
+    (scan.tidied ? ', plus ' + scan.tidied + ' spacing fix' + (scan.tidied === 1 ? "" : "es") : "") +
+    '.<div class="sp-list">' + rows + '</div>';
+  spPending = scan;
+  if (actions) actions.hidden = false;
+  if (undoBtn) undoBtn.hidden = !spUndoSnapshot;
+}
+
+function spApply(scan){
+  if (!scan || !scan.capsTouched) return 0;
+  spUndoSnapshot = JSON.parse(JSON.stringify(state.captions));
+  state.captions.forEach((c, i) => {
+    if (scan.texts[i] !== undefined && scan.texts[i] !== c.text){
+      c.text = scan.texts[i];
+      // The words changed, so any per-word timing no longer lines up by index;
+      // sanitizeWt re-derives it from the caption span on the next rebuild.
+      if (c.srcText) c.srcText = scan.texts[i];
+    }
+  });
+  state.orphans = [];
+  rebuildAll();
+  return scan.capsTouched;
+}
+
+/* Used by the "fix new captions automatically" switch, after an import or a transcription. */
+function spAutoApply(){
+  const auto = $("#spAuto");
+  if (!auto || !auto.checked || !state.captions.length) return;
+  const scan = spScan();
+  if (!scan.capsTouched) return;
+  spApply(scan);
+  const box = $("#spResult");
+  if (box) box.innerHTML = '<span class="sp-ok">\u2713 Auto-fixed ' + scan.capsTouched +
+    ' caption' + (scan.capsTouched === 1 ? "" : "s") + ' to ' + spVariantName(scan.variant) + ' spelling.</span>';
+  const undoBtn = $("#btnSpUndo"), actions = $("#spActions");
+  if (actions) actions.hidden = false;
+  if (undoBtn) undoBtn.hidden = false;
+  const applyBtn = $("#btnSpApply");
+  if (applyBtn) applyBtn.hidden = true;
+}
+
+function setupSpelling(){
+  const check = $("#btnSpCheck");
+  if (check) check.addEventListener("click", () => {
+    const applyBtn = $("#btnSpApply");
+    if (applyBtn) applyBtn.hidden = false;
+    spRender(spScan());
+  });
+  const apply = $("#btnSpApply");
+  if (apply) apply.addEventListener("click", () => {
+    const n = spApply(spPending);
+    const box = $("#spResult");
+    if (n && box) box.innerHTML = '<span class="sp-ok">\u2713 Updated ' + n + ' caption' +
+      (n === 1 ? "" : "s") + ' to ' + spVariantName(spPending.variant) + ' spelling.</span>';
+    spPending = null;
+    apply.hidden = true;
+    const undoBtn = $("#btnSpUndo");
+    if (undoBtn) undoBtn.hidden = false;
+  });
+  const undo = $("#btnSpUndo");
+  if (undo) undo.addEventListener("click", () => {
+    if (!spUndoSnapshot) return;
+    state.captions = spUndoSnapshot;
+    spUndoSnapshot = null;
+    state.orphans = [];
+    rebuildAll();
+    const box = $("#spResult");
+    if (box) box.textContent = "Reverted to the captions as they were before the spelling pass.";
+    undo.hidden = true;
+    const applyBtn = $("#btnSpApply");
+    if (applyBtn) applyBtn.hidden = false;
+  });
+  const variant = $("#spVariant");
+  if (variant) variant.addEventListener("change", () => {
+    const applyBtn = $("#btnSpApply");
+    if (applyBtn) applyBtn.hidden = false;
+    spRender(spScan());
+  });
+}
+
 function setupUI(){
   $$("#tabs button").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -3281,7 +3527,8 @@ function setupUI(){
       state.orphans = [];
       state.captions = caps;
       rebuildAll();
-    } else distributeText(txt);
+      spAutoApply();
+    } else { distributeText(txt); spAutoApply(); }
   });
   $("#btnClearCaps").addEventListener("click", () => { state.orphans = []; state.captions = []; rebuildAll(); });
   $("#btnDistribute").addEventListener("click", () => {
@@ -3382,14 +3629,11 @@ function setupUI(){
       rebuildSegments();
     });
   }
-  bindRng("padX", "padXr", { scale: 0.01 });
-  bindRng("padY", "padYr", { scale: 0.01 });
+  setupPadding();
   bindRng("corner", "corner");
   bindRng("yPos", "yPct", { suffix: "%" });
   bindRng("maxWidth", "maxWidthPct", { suffix: "%" });
   bindRng("lineSpacing", "lineSpacing");
-  $("#padX").addEventListener("input", function(){ $("#padXVal").textContent = this.value + "%"; });
-  $("#padY").addEventListener("input", function(){ $("#padYVal").textContent = this.value + "%"; });
   $("#corner").addEventListener("input", function(){ $("#cornerVal").textContent = this.value; });
   $("#yPos").addEventListener("input", function(){ $("#yPosVal").textContent = this.value + "%"; });
   $("#maxWidth").addEventListener("input", function(){ $("#maxWidthVal").textContent = this.value + "%"; });
@@ -3459,6 +3703,7 @@ function readSubtitleFile(file){
     state.orphans = [];
     state.captions = caps;
     rebuildAll();
+    spAutoApply();
   };
   r.readAsText(file, "UTF-8");
 }
@@ -3470,6 +3715,7 @@ function boot(){
   normalizeStyle();
   setupUI();
   setupSizeDialog();
+  setupSpelling();
   syncStyleToUI();
   applyVideoBgToShell();
   applyModeUI();
