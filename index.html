@@ -37,6 +37,7 @@
     </header>
 
     <section class="stage">
+      <div class="stage-viewport" id="stageViewport">
       <div class="video-shell" id="videoShell">
         <video id="video" playsinline preload="metadata"></video>
         <canvas id="overlay"></canvas>
@@ -52,6 +53,12 @@
             <button class="btn" id="btnPickAudioEmpty">🎵 Audio only</button>
           </div>
         </div>
+      </div>
+      <div class="zoom-hud" id="zoomHud">
+        <button class="zoom-btn" id="zoomOut" title="Zoom out">−</button>
+        <button class="zoom-level" id="zoomLevel" title="Reset to fit (double-click the preview)">100%</button>
+        <button class="zoom-btn" id="zoomIn" title="Zoom in">+</button>
+      </div>
       </div>
 
       <div class="transport">

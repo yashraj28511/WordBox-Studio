@@ -2092,13 +2092,130 @@ function applyVideoBgToShell(){
 function getStageDims(){ return { w: SW, h: SH }; }
 function fitStage(){
   const shell = $("#videoShell");
+  const vp = $("#stageViewport");
   if (!SW || !SH) return;
-  const availW = shell.parentElement.clientWidth;
+  const host = (vp || shell).parentElement;
+  const availW = host.clientWidth;
   const availH = window.innerHeight * 0.56;
   const s = Math.min(availW / SW, availH / SH);
-  shell.style.width  = Math.round(SW * s) + "px";
-  shell.style.height = Math.round(SH * s) + "px";
-  shell.style.margin = "0 auto";
+  const w = Math.round(SW * s), h = Math.round(SH * s);
+  if (vp){
+    // The viewport is the window; the shell fills it and is scaled inside.
+    vp.style.width = w + "px";
+    vp.style.height = h + "px";
+    shell.style.width = "100%";
+    shell.style.height = "100%";
+    shell.style.margin = "0";
+    applyZoom();
+  } else {
+    shell.style.width  = w + "px";
+    shell.style.height = h + "px";
+    shell.style.margin = "0 auto";
+  }
+}
+
+/* =====================================================================
+   PREVIEW ZOOM  (view only — the canvas, the stage size and every export
+   are untouched; this just scales what is on screen so details can be
+   inspected close up.)
+   ===================================================================== */
+const ZOOM_MIN = 1, ZOOM_MAX = 12;
+let zoom = 1, panX = 0, panY = 0;
+
+function zoomViewport(){ return $("#stageViewport"); }
+function clampPan(){
+  const vp = zoomViewport();
+  if (!vp) return;
+  const w = vp.clientWidth, h = vp.clientHeight;
+  if (zoom <= 1){ panX = 0; panY = 0; return; }
+  // Never let the stage be dragged away from the window.
+  panX = clamp(panX, w - w * zoom, 0);
+  panY = clamp(panY, h - h * zoom, 0);
+}
+function applyZoom(){
+  const vp = zoomViewport(), shell = $("#videoShell");
+  if (!vp || !shell) return;
+  clampPan();
+  shell.style.transform = "translate(" + panX.toFixed(2) + "px," + panY.toFixed(2) + "px) scale(" + zoom.toFixed(4) + ")";
+  vp.classList.toggle("zoomed", zoom > 1.001);
+  const lab = $("#zoomLevel");
+  if (lab) lab.textContent = Math.round(zoom * 100) + "%";
+  const hud = $("#zoomHud");
+  if (hud) hud.classList.toggle("on", zoom > 1.001);
+}
+/* Zoom around a point, so whatever is under the pointer stays under it. */
+function zoomAt(factor, cx, cy){
+  const prev = zoom;
+  const next = clamp(prev * factor, ZOOM_MIN, ZOOM_MAX);
+  if (Math.abs(next - prev) < 0.0001) return;
+  const k = next / prev;
+  panX = cx - (cx - panX) * k;
+  panY = cy - (cy - panY) * k;
+  zoom = next;
+  applyZoom();
+}
+function resetZoom(){ zoom = 1; panX = 0; panY = 0; applyZoom(); }
+function zoomCentre(factor){
+  const vp = zoomViewport();
+  if (!vp) return;
+  zoomAt(factor, vp.clientWidth / 2, vp.clientHeight / 2);
+}
+function setupZoom(){
+  const vp = zoomViewport();
+  if (!vp) return;
+  vp.addEventListener("wheel", e => {
+    e.preventDefault();
+    const r = vp.getBoundingClientRect();
+    // Trackpads report small pixel deltas, mice report ~100 per notch.
+    const step = e.deltaMode === 1 ? e.deltaY * 16 : (e.deltaMode === 2 ? e.deltaY * r.height : e.deltaY);
+    zoomAt(Math.exp(-clamp(step, -240, 240) * 0.0022), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+
+  let dragging = false, lastX = 0, lastY = 0, moved = 0;
+  vp.addEventListener("pointerdown", e => {
+    // The zoom buttons sit inside the viewport; leave their clicks alone.
+    if (e.target.closest && e.target.closest(".zoom-hud")) return;
+    // Middle button pans at any zoom; the left button pans once zoomed in.
+    if (e.button !== 1 && !(e.button === 0 && zoom > 1.001)) return;
+    dragging = true; moved = 0;
+    lastX = e.clientX; lastY = e.clientY;
+    vp.classList.add("panning");
+    vp.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  vp.addEventListener("pointermove", e => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    lastX = e.clientX; lastY = e.clientY;
+    panX += dx; panY += dy;
+    applyZoom();
+  });
+  const endDrag = e => {
+    if (!dragging) return;
+    dragging = false;
+    vp.classList.remove("panning");
+    try { vp.releasePointerCapture(e.pointerId); } catch(err){}
+  };
+  vp.addEventListener("pointerup", endDrag);
+  vp.addEventListener("pointercancel", endDrag);
+  vp.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
+  vp.addEventListener("dblclick", e => {
+    if (e.target.closest && e.target.closest(".zoom-hud")) return;
+    e.preventDefault(); resetZoom();
+  });
+
+  const zi = $("#zoomIn"), zo = $("#zoomOut"), zl = $("#zoomLevel");
+  if (zi) zi.addEventListener("click", () => zoomCentre(1.25));
+  if (zo) zo.addEventListener("click", () => zoomCentre(1 / 1.25));
+  if (zl) zl.addEventListener("click", resetZoom);
+
+  document.addEventListener("keydown", e => {
+    if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+    if (e.key === "0" && (e.ctrlKey || e.metaKey)){ e.preventDefault(); resetZoom(); }
+    else if ((e.key === "+" || e.key === "=") && !e.ctrlKey && !e.metaKey){ e.preventDefault(); zoomCentre(1.25); }
+    else if (e.key === "-" && !e.ctrlKey && !e.metaKey){ e.preventDefault(); zoomCentre(1 / 1.25); }
+  });
 }
 window.addEventListener("resize", fitStage);
 
@@ -3716,6 +3833,7 @@ function boot(){
   setupUI();
   setupSizeDialog();
   setupSpelling();
+  setupZoom();
   syncStyleToUI();
   applyVideoBgToShell();
   applyModeUI();

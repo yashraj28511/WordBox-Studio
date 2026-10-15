@@ -44,7 +44,15 @@ Importing an audio file — or choosing **Audio only** — opens a project-size 
 
 The pass runs entirely in the browser — no network, no API key. It is deliberately one-directional where English is ambiguous: `licence` becomes `license` for US English, but `license` is left alone going the other way, because British English keeps it as the verb. The same care applies to `meter` / `metre`, `program` / `programme`, `story` / `storey` and `check` / `cheque`. Word case, punctuation and `*emphasis*` markers are preserved, and hyphenated compounds are converted piece by piece. The optional tidy pass collapses double spaces, removes a space before punctuation and capitalises a lone “i”. The word lists live in `js/spelling.js`.
 
+## Zooming the preview
+
+Scroll the mouse wheel over the preview to zoom from 100% up to 1200%, centred on the pointer. Once zoomed, drag with the left button to pan; the middle button pans at any zoom. Double-click the preview, or click the percentage in the corner, to go back to 100%; the − and + buttons and the `+` / `-` / `Ctrl-0` keys do the same from the keyboard.
+
+Zoom is a view of the preview only. The canvas, the project size and every export — PNG, MP4, subtitles — are unaffected, so you can inspect a caption's edge or shadow close up while exporting at full size.
+
 ## Changelog
+
+- **New: wheel zoom in the preview.** See *Zooming the preview* above.
 
 - **New: padding per side.** *Style → Box shape* now has **Pad top / bottom / left / right** instead of one X and one Y slider, with *Link opposite sides* to move them in pairs and a Reset. Padding stays a share of the font size, so it scales with the caption. **Box height** adds a second way to solve the same problem: *Fit the words* measures the letters actually on screen, so an ALL-CAPS line is evenly centred instead of carrying the font's unused descender space under it, while *Font metrics* keeps the old behaviour.
 
