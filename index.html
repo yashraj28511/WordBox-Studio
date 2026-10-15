@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WordBox Studio — Word-by-word captions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Poppins:wght@600;700;800&family=Montserrat:wght@700;800;900&family=Bebas+Neue&family=Anton&family=Oswald:wght@600;700&family=Archivo+Black&family=Luckiest+Guy&family=Bangers&family=Caveat:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+  <aside class="ad-rail left">
+    <div class="ad-slot">
+      <b>Ad space</b>
+      <span>160 × 600</span>
+      <p class="ad-note">Paste your ad network snippet here.</p>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">W</div>
+        <div>
+          <h1>WordBox <span>Studio</span></h1>
+          <p>Word-by-word captions · Whisper in your browser · 100% local</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" id="btnPickVideo2">🎬 Import video</button>
+        <button class="btn ghost" id="btnPickAudio">🎵 Audio only</button>
+        <button class="btn primary" id="btnExportTop">Export</button>
+      </div>
+    </header>
+
+    <section class="stage">
+      <div class="video-shell" id="videoShell">
+        <video id="video" playsinline preload="metadata"></video>
+        <canvas id="overlay"></canvas>
+        <div class="audio-badge" id="audioBadge">
+          <span class="pulse"></span> Audio-only mode
+        </div>
+        <div class="empty" id="emptyState">
+          <div class="empty-icon">▶</div>
+          <h2>Drop a video to begin</h2>
+          <p>Use <b>Import video</b> for the full picture, or <b>Audio only</b> to keep just the sound and let your background color shine through.</p>
+          <div class="empty-actions">
+            <button class="btn primary" id="btnPickVideo">🎬 Import video</button>
+            <button class="btn" id="btnPickAudioEmpty">🎵 Audio only</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="icon-btn" id="playBtn" title="Play / Pause (Space)">▶</button>
+        <div class="time" id="timeLabel">0:00.00 / 0:00.00</div>
+        <input type="range" class="scrub" id="scrub" min="0" max="1000" value="0" step="1">
+        <div class="mode-switch disabled" id="modeSwitch" title="Switch between video and audio-only">
+          <button data-mode="video" class="active">🎬 Video</button>
+          <button data-mode="audio">🎵 Audio</button>
+        </div>
+        <button class="btn tiny" id="btnSplitTop">Split</button>
+        <button class="btn tiny" id="btnAddTop">+ Cap</button>
+      </div>
+
+      <div class="timeline" id="timeline">
+        <div class="tl-empty">Timeline — load a video and captions</div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="inspector">
+    <nav class="tabs" id="tabs">
+      <button data-tab="captions" class="active">Captions</button>
+      <button data-tab="transcribe">Transcribe</button>
+      <button data-tab="edit">Edit</button>
+      <button data-tab="style">Style</button>
+      <button data-tab="animate">Animate</button>
+      <button data-tab="export">Export</button>
+    </nav>
+
+    <div class="tab-body">
+      <!-- CAPTIONS -->
+      <div class="tab-page active" data-page="captions">
+        <div class="field">
+          <label>Subtitle file</label>
+          <button class="btn full" id="btnPickSrt">Load .srt / .vtt file</button>
+        </div>
+        <div class="field">
+          <label>Paste SRT or plain transcript</label>
+          <textarea id="pasteArea" rows="7" placeholder="Paste an .srt here — or just plain text, one caption per line.&#10;&#10;Use *stars* to emphasize words."></textarea>
+          <div class="row">
+            <button class="btn primary grow" id="btnImportText">Import text</button>
+            <button class="btn ghost" id="btnClearCaps">Clear</button>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Auto-distribute plain text</label>
+          <div class="row">
+            <span class="mini">Words / caption</span>
+            <input type="number" id="distWords" value="3" min="1" max="20">
+            <span class="mini">Gap (s)</span>
+            <input type="number" id="distGap" value="0.06" step="0.02" min="0" style="width:64px">
+          </div>
+          <button class="btn full" id="btnDistribute">Distribute over video duration</button>
+        </div>
+        <div class="hint" id="capInfo">No captions yet.</div>
+      </div>
+
+      <!-- TRANSCRIBE -->
+      <div class="tab-page" data-page="transcribe">
+        <div class="hint">
+          Transcription uses <b>Groq-hosted Whisper</b>. The model runs on Groq servers, so visitors do not download model files. Your audio is uploaded securely through a Netlify Function; the API key stays server-side.
+        </div>
+        <div class="field">
+          <label>Whisper model</label>
+          <select id="trModel">
+            <option value="whisper-large-v3-turbo" selected>Groq Whisper Large v3 Turbo — hosted</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Language</label>
+          <select id="trLang">
+            <option value="">Auto detect (English models ignore this)</option>
+            <option value="en">English</option>
+            <option value="hi">Hindi</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ru">Russian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
+            <option value="ar">Arabic</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Words per caption</label>
+          <div class="row">
+            <input type="number" id="trGroupWords" value="4" min="1" max="12">
+            <span class="mini">Break on punctuation</span>
+            <input type="checkbox" id="trBreakPunct" checked>
+          </div>
+        </div>
+        <button class="btn primary full" id="btnTranscribe">Transcribe video</button>
+        <div class="progress" id="trProgress"><i></i></div>
+        <div class="hint" id="trStatus">Load a video first, then press Transcribe.</div>
+      </div>
+
+      <!-- EDIT -->
+      <div class="tab-page" data-page="edit">
+        <div class="hint">
+          Type in a row to change that caption. Click a row to jump the playhead.
+          Wrap a word in <b>*stars*</b> to emphasize it.
+        </div>
+        <div class="row">
+          <button class="btn tiny" id="btnAddCap">+ Add at playhead</button>
+          <button class="btn tiny" id="btnSplitCap">Split at playhead</button>
+          <button class="btn tiny" id="btnSnapWord">Snap word to playhead</button>
+          <button class="btn tiny" id="btnReloadCaps">Reload</button>
+        </div>
+        <div class="cap-list" id="capList"></div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Emphasize words</label>
+          <div class="row">
+            <button class="btn tiny grow" id="btnEmpToggle">Toggle word at playhead</button>
+            <button class="btn tiny ghost" id="btnEmpClear">Clear all</button>
+          </div>
+          <div class="row">
+            <input type="text" id="empFind" placeholder="word or phrase…" class="grow">
+            <button class="btn tiny" id="btnEmpAll">Emphasize all</button>
+          </div>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="emBold" checked> Bold</label>
+            <label class="chk"><input type="checkbox" id="emItalic"> Italic</label>
+          </div>
+          <div class="row">
+            <span class="mini">Text</span>
+            <input type="color" id="emTextColor" value="#000000">
+            <span class="mini">Box</span>
+            <input type="color" id="emBoxColor" value="#ffd400">
+          </div>
+        </div>
+      </div>
+
+      <!-- STYLE -->
+      <div class="tab-page" data-page="style">
+        <div class="field" id="stageSection">
+          <label>Stage &amp; background</label>
+          <div class="row">
+            <input type="color" id="videoBgColor" value="#000000">
+            <input type="text" id="videoBgColorHex" value="#000000" style="width:88px">
+            <button class="btn tiny ghost" id="btnVideoBgReset" title="Reset to black">Reset</button>
+          </div>
+          <div class="swatches" id="videoBgPresets"></div>
+          <div class="row">
+            <span class="mini" style="width:74px">Aspect</span>
+            <select id="stageAspect" style="flex:1">
+              <option value="auto">Auto (match source)</option>
+              <option value="16:9">16:9 · widescreen</option>
+              <option value="9:16">9:16 · vertical</option>
+              <option value="1:1">1:1 · square</option>
+              <option value="4:5">4:5 · portrait</option>
+              <option value="4:3">4:3 · classic</option>
+              <option value="21:9">21:9 · cinema</option>
+            </select>
+          </div>
+          <div class="hint" id="stageHint">
+            In <b>audio-only mode</b> this color fills the whole frame.
+            In <b>video mode</b> it fills the letterbox bars when the stage aspect doesn't match the video.
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="field">
+          <label>Caption style</label>
+          <div class="preset-grid" id="presetGrid"></div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Font</label>
+          <select id="fontFamily">
+            <option>Inter</option><option>Poppins</option><option>Montserrat</option>
+            <option>Bebas Neue</option><option>Anton</option><option>Oswald</option>
+            <option>Archivo Black</option><option>Luckiest Guy</option><option>Bangers</option>
+            <option>Caveat</option><option>Arial</option><option>Impact</option>
+            <option>Georgia</option><option>Courier New</option>
+          </select>
+          <div class="row">
+            <span class="mini">Weight</span>
+            <select id="fontWeight" style="width:auto;flex:1">
+              <option value="400">Regular</option>
+              <option value="600">Semibold</option>
+              <option value="700">Bold</option>
+              <option value="800" selected>Extra bold</option>
+              <option value="900">Black</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Font size <span class="mini" id="fsLabel">64 px</span></label>
+          <div class="row">
+            <input type="range" id="fontSize" min="16" max="200" value="64">
+            <input type="number" id="fontSizeNum" value="64" min="8" max="400" style="width:64px">
+          </div>
+        </div>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="uppercase" checked> UPPERCASE</label>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Colors</label>
+          <div class="row">
+            <span class="mini" style="width:42px">Text</span>
+            <input type="color" id="textColor" value="#ffffff">
+            <input type="text" id="textColorHex" value="#ffffff" style="width:88px">
+          </div>
+          <div class="row">
+            <span class="mini" style="width:42px">Box</span>
+            <input type="color" id="boxColor" value="#2563eb">
+            <input type="text" id="boxColorHex" value="#2563eb" style="width:88px">
+          </div>
+          <div class="row">
+            <span class="mini" style="width:42px">Accent</span>
+            <input type="color" id="accentColor" value="#ffd400">
+            <input type="text" id="accentColorHex" value="#ffd400" style="width:88px">
+          </div>
+          <div class="row">
+            <span class="mini" style="width:42px">Outline</span>
+            <input type="color" id="strokeColor" value="#000000">
+            <input type="range" id="strokeWidth" min="0" max="30" step="0.5" value="0">
+            <span class="mini" id="strokeWidthVal" style="width:30px;text-align:right">0</span>
+          </div>
+          <div class="row">
+            <button class="btn tiny" id="btnSwapColors">⇄ Swap text / box</button>
+          </div>
+          <div class="swatches" id="presets"></div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Text shadow</label>
+          <div class="row">
+            <span class="mini" style="width:96px">Shadow type</span>
+            <select id="shadowType" style="flex:1">
+              <option value="none">Off</option><option value="drop">Drop shadow</option><option value="long">Long shadow</option>
+            </select>
+          </div>
+          <div class="row"><span class="mini" style="width:96px">Direction</span><input type="range" id="shadowDirection" min="0" max="359" value="135"><span class="mini" id="shadowDirectionVal" style="width:38px;text-align:right">135°</span></div>
+          <div class="row"><span class="mini" style="width:96px">Distance</span><input type="range" id="shadowDistance" min="0" max="100" value="12"><span class="mini" id="shadowDistanceVal" style="width:38px;text-align:right">12</span></div>
+          <div class="row"><span class="mini" style="width:96px">Opacity</span><input type="range" id="shadowOpacity" min="0" max="100" value="70"><span class="mini" id="shadowOpacityVal" style="width:38px;text-align:right">70%</span></div>
+          <div class="row"><span class="mini" style="width:96px">Blur</span><input type="range" id="shadowBlur" min="0" max="80" value="12"><span class="mini" id="shadowBlurVal" style="width:38px;text-align:right">12</span></div>
+          <div class="row"><span class="mini" style="width:96px">Color</span><input type="color" id="shadowColor" value="#000000"></div>
+          <div class="row"><span class="mini" style="width:96px">Fade</span><select id="shadowFade" style="flex:1"><option value="out">Fade out (near → far)</option><option value="in">Fade in (near → far)</option><option value="both">Fade both ends</option><option value="none">No fade</option></select></div>
+          <div class="hint">Long shadow extends the text shadow along the selected direction. Fade controls how its opacity changes along the shadow.</div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Caption fitting</label>
+          <label class="chk"><input type="checkbox" id="keepWordsTogether" checked> Keep words on one line; move overflow to next timed caption</label>
+          <div class="hint">When a word or group is too wide, WordBox keeps the word intact and shifts it into the next caption beat instead of wrapping it awkwardly.</div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Box shape</label>
+          <div class="row">
+            <span class="mini" style="width:70px">Padding X</span>
+            <input type="range" id="padX" min="0" max="60" value="16">
+            <span class="mini" id="padXVal" style="width:34px;text-align:right">16%</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:70px">Padding Y</span>
+            <input type="range" id="padY" min="0" max="60" value="10">
+            <span class="mini" id="padYVal" style="width:34px;text-align:right">10%</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:70px">Corner</span>
+            <input type="range" id="corner" min="0" max="80" value="12">
+            <span class="mini" id="cornerVal" style="width:34px;text-align:right">12</span>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Layout</label>
+          <div class="row">
+            <span class="mini" style="width:96px">Y position</span>
+            <input type="range" id="yPos" min="5" max="98" value="82">
+            <span class="mini" id="yPosVal" style="width:34px;text-align:right">82%</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:96px">Max width</span>
+            <input type="range" id="maxWidth" min="20" max="100" value="80">
+            <span class="mini" id="maxWidthVal" style="width:34px;text-align:right">80%</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:96px">Line spacing</span>
+            <input type="range" id="lineSpacing" min="0.8" max="2.2" step="0.05" value="1.25">
+            <span class="mini" id="lineSpacingVal" style="width:34px;text-align:right">1.25</span>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:96px">Max lines</span>
+            <select id="maxLines" style="flex:1">
+              <option value="0">Auto (fit width)</option>
+              <option value="1">1 line (no wrap)</option>
+              <option value="2">2 lines (balanced)</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:96px">Max words</span>
+            <input type="number" id="maxWords" value="0" min="0" max="20">
+            <select id="wordsMode" style="flex:1">
+              <option value="0">Timed chunks</option>
+              <option value="1">Wrap onto lines</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:96px">Reveal</span>
+            <select id="revealMode" style="flex:1">
+              <option value="0">Whole line at once</option>
+              <option value="1">Word by word (build-up)</option>
+              <option value="2">Active word only</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ANIMATE -->
+      <div class="tab-page" data-page="animate">
+        <div class="field">
+          <label>Box behaviour <span class="mini">(Word Box style)</span></label>
+          <select id="boxMode">
+            <option value="0">Active word only</option>
+            <option value="1">Build-up (boxes stay)</option>
+            <option value="2">All boxes at once</option>
+            <option value="3">Moving highlight (glides)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Box animation</label>
+          <select id="animIn">
+            <option value="none">None (instant)</option>
+            <option value="pop" selected>Pop</option>
+            <option value="bounce">Bounce (overshoot)</option>
+            <option value="elastic">Elastic</option>
+            <option value="fade">Fade</option>
+            <option value="slideUp">Slide up</option>
+            <option value="slideDown">Slide down</option>
+            <option value="slideL">Slide from left</option>
+            <option value="slideR">Slide from right</option>
+            <option value="drop">Drop in</option>
+            <option value="wipeLR">Wipe left → right</option>
+            <option value="wipeRL">Wipe right → left</option>
+            <option value="stretchH">Stretch horizontal</option>
+            <option value="stretchV">Stretch vertical</option>
+            <option value="spin">Spin in</option>
+            <option value="zoomOut">Zoom out</option>
+          </select>
+        </div>
+        <div class="row">
+          <span class="mini" style="width:110px">Duration</span>
+          <input type="range" id="popTime" min="0.03" max="0.8" step="0.01" value="0.14">
+          <span class="mini" id="popTimeVal" style="width:44px;text-align:right">0.14s</span>
+        </div>
+        <div class="row">
+          <span class="mini" style="width:110px">Start scale</span>
+          <input type="range" id="popFrom" min="0" max="100" value="70">
+          <span class="mini" id="popFromVal" style="width:44px;text-align:right">70%</span>
+        </div>
+        <div class="row">
+          <span class="mini" style="width:110px">Slide dist.</span>
+          <input type="range" id="moveDist" min="0" max="200" value="60">
+          <span class="mini" id="moveDistVal" style="width:44px;text-align:right">60%</span>
+        </div>
+        <div class="row">
+          <span class="mini" style="width:110px">Stagger</span>
+          <input type="range" id="stagger" min="0" max="0.3" step="0.005" value="0.03">
+          <span class="mini" id="staggerVal" style="width:44px;text-align:right">0.03s</span>
+        </div>
+        <div class="divider"></div>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="animOut"> Animate out (reverse)</label>
+        </div>
+        <div class="row">
+          <span class="mini" style="width:110px">Out duration</span>
+          <input type="range" id="outTime" min="0.03" max="0.8" step="0.01" value="0.10">
+          <span class="mini" id="outTimeVal" style="width:44px;text-align:right">0.10s</span>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Word timing (only used when a word has no real timing)</label>
+          <select id="timingMode">
+            <option value="0">By word length</option>
+            <option value="1">Equal per word</option>
+          </select>
+        </div>
+        <div class="hint">
+          <b>Moving highlight</b> uses one box per line that glides from word to word (karaoke).
+          Slide/drop animations become a fade in that mode.
+        </div>
+      </div>
+
+      <!-- EXPORT -->
+      <div class="tab-page" data-page="export">
+        <div class="field">
+          <label>Subtitles</label>
+          <div class="row">
+            <button class="btn grow" id="btnExportSrt">Download .srt</button>
+            <button class="btn grow" id="btnExportVtt">Download .vtt</button>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Burned-in video</label>
+          <button class="btn primary full" id="btnExportVideo">Export video as MP4</button>
+          <div class="progress" id="recProgress"><i></i></div>
+          <div class="hint" id="recInfo">Renders in real time, then converts to MP4 (H.264/AAC) in your browser. Keep this tab open and in the foreground until it finishes.</div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Still frame</label>
+          <button class="btn full" id="btnExportPng">Download current frame (PNG)</button>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Project</label>
+          <div class="row">
+            <button class="btn grow" id="btnSaveJson">Save project</button>
+            <button class="btn grow" id="btnLoadJson">Load project</button>
+          </div>
+          <input type="file" id="jsonInput" accept=".json" hidden>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <aside class="ad-rail right">
+    <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
+    <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
+  </aside>
+</div>
+
+<input type="file" id="videoInput" accept="video/*,audio/*" hidden>
+<input type="file" id="srtInput" accept=".srt,.vtt,.txt" hidden>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+# WordBox Studio — Groq Hosted Whisper
+
+This is the website version of WordBox Studio. Transcription runs through Groq's hosted Whisper API. Visitors do not download the Whisper model; audio is sent to a Netlify Function, which keeps the API key out of the browser code.
+
+## Deploy on Netlify
+
+1. Extract this ZIP.
+2. Deploy the `wordbox-studio-updated` folder using a Git-connected Netlify site or Netlify's manual folder deploy. The folder root must contain `index.html`, `netlify.toml`, `css/`, `js/`, `vendor/` (self-hosted MP4 encoder, ~31 MB) and `netlify/functions/transcribe.mjs`.
+3. In Netlify, open **Site configuration → Environment variables** and add:
+   - Name: `TRANSCRIPTION_API_KEY`
+   - Value: your Groq API key
+4. Save, then trigger a fresh deployment.
+5. Open the production URL and test a small audio/video file.
+
+## Transcription behavior
+
+- Provider: Groq hosted audio transcription API.
+- Model: `whisper-large-v3-turbo`.
+- Word-level timestamps are requested for caption synchronization.
+- The API key is only read by the Netlify Function and is never placed in frontend JavaScript.
+- Large files supported: the browser extracts the audio track, converts it to 16 kHz mono WAV, splits it into ~90 s chunks (each ~3 MB, under the Netlify request limit), transcribes each chunk, and stitches the timestamps back together. Video files up to ~400 MB work on most devices; the video itself is never uploaded.
+- The service requires a valid Groq API key and is subject to the provider's current rate limits and policies. Usage may not be unlimited or free forever.
+
+## Troubleshooting
+
+- **Transcription is not configured**: add `TRANSCRIPTION_API_KEY` to Netlify environment variables and redeploy.
+- **401/403**: verify the key in Netlify; do not put it in the website code.
+- **429**: the provider rate limit or quota may have been reached; wait and check your provider dashboard.
+- **Could not read audio**: use MP4 (H.264/AAC), MOV, WebM, MP3, M4A or WAV.
+
+## Changelog
+
+- **Fixed: exported video looked zoomed-in / cropped.** `paintStage` now scales the background and video by the export scale, the same way captions already were.
+
+- **Fixed: MP4 export stuck while exporting.** The MP4 encoder (ffmpeg.wasm) was loaded from unpkg through blob URLs, which breaks the encoder worker's relative imports, so loading hung forever. It is now self-hosted in `vendor/ffmpeg/`, with a 90 s load timeout, progress based on the encoder log (WebM recordings have no duration), a WebM fallback download if MP4 conversion fails, and export resolution capped at 1280 px on the longest side (`EXPORT_MAX_SIDE` in `js/app.js`).
+
+- **Fixed: two word boxes flashing together for a few milliseconds.** Whisper word timestamps often overlap neighbouring words (or captions) by a few ms. The renderer now builds a clean, strictly sequential timing copy for drawing (the editable captions and SRT/VTT/JSON exports are untouched), draws only one active caption at a time, and draws only one box at a time in "word" box mode. Applies to the live preview on desktop and mobile as well as video/PNG export.
+
+- **Fixed: mobile "maximum video size 4-5 MB" error.** Audio is now extracted in the browser and sent in small chunks instead of uploading the whole video. Added retries on rate limits/network errors, clearer error messages, and chunk cuts at quiet moments so words aren't split.
