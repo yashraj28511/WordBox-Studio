@@ -2487,11 +2487,11 @@ async function sendChunk(blob, lang, tries){
   let lastErr;
   for (let attempt = 0; attempt <= tries; attempt++){
     try {
-      const response = await fetch("/.netlify/functions/transcribe", { method: "POST", body: form });
+      const response = await fetch("/api/transcribe", { method: "POST", body: form });
       const text = await response.text();
       let data; try { data = JSON.parse(text); } catch (_) { data = null; }
       if (response.ok && data) return data;
-      if (response.status === 404) throw Object.assign(new Error("Transcription service not found. The Netlify function was not deployed — redeploy the full folder (including netlify/functions)."), { fatal: true });
+      if (response.status === 404) throw Object.assign(new Error("Transcription API not found. Confirm the Vercel deployment includes the api/transcribe.js function."), { fatal: true });
       if (response.status === 413) throw Object.assign(new Error("The server rejected the upload as too large."), { fatal: true });
       if ([401, 403].includes(response.status)) throw Object.assign(new Error((data && data.error) || "API key rejected. Check TRANSCRIPTION_API_KEY in Netlify."), { fatal: true });
       const msg = (data && (data.error || data.message)) || ("Transcription service returned HTTP " + response.status + (data ? "" : " (no JSON — the function may have timed out)"));

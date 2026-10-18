@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "exiftool-vendored": "^30.0.0"
+    "exiftool-vendored": "^30.0.0",
+    "busboy": "^1.6.0"
   }
 }
