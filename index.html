@@ -629,13 +629,14 @@
         }
 
         .popular-tools{display:none}
-        .normark-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+        .normark-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
         .normark-tool{display:flex;flex-direction:column;gap:12px;padding:24px;background:#0f1729;border:1px solid #1f2d47;border-radius:16px;text-decoration:none;color:#fff;transition:.2s;position:relative}
         .normark-tool:hover{transform:translateY(-2px);border-color:#3b82f6;background:#121b2e}
         .normark-tool .nt-icon{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;font-size:22px;background:#1a2538;color:#fff;margin-bottom:8px}
         .normark-tool h3{font-size:17px;margin:0 0 8px;font-weight:600}
         .normark-tool p{font-size:13px;color:#8b95a5;line-height:1.5;margin:0;flex:1}
         .normark-tool .nt-arrow{position:absolute;top:20px;right:20px;color:#8b95a5;font-size:14px}
+        @media(max-width:900px){.normark-tools{grid-template-columns:repeat(2,1fr)}}
         @media(max-width:650px){.normark-tools{grid-template-columns:1fr}}
 
     </style>
