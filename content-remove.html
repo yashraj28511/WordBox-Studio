@@ -253,17 +253,16 @@ footer .mono{font-family:var(--mono);font-size:11.5px;letter-spacing:.05em}
 <header>
   <div class="brandrow">
     <h1 class="wordmark"><a href="index.html" style="color:inherit;text-decoration:none">Norm<b>ark</b></a></h1>
-    <span class="ver">CONTENT REMOVER · ONLINE API</span>
+    <span class="ver">CONTENT REMOVER · CLIENT-SIDE</span>
   </div>
   <p class="tagline">
-    Uploads supported files to the Normark server processor to remove metadata from photos and video —
-    <strong>without re-encoding</strong> where the file format and processor support lossless metadata edits. The output is returned by the server;
-    only metadata is targeted.
+    Removes C2PA provenance, EXIF, XMP, IPTC, ICC and container metadata from photos and video —
+    <strong>without re-encoding</strong>. The picture and the audio-video streams come back byte-for-byte identical; only the metadata is gone. All processing happens in your browser.
   </p>
   <div class="badges">
-    <span class="badge accent"><span class="dot"></span>Uploaded for processing</span>
-    <span class="badge"><span class="dot"></span>Server-side processing</span>
-    <span class="badge"><span class="dot"></span>Server limit applies</span>
+    <span class="badge accent"><span class="dot"></span>Client-side processing</span>
+    <span class="badge"><span class="dot"></span>No upload to server</span>
+    <span class="badge"><span class="dot"></span>Privacy-first</span>
     <span class="badge"><span class="dot"></span>Lossless, no re-compression</span>
   </div>
 </header>
@@ -275,7 +274,7 @@ footer .mono{font-family:var(--mono);font-size:11.5px;letter-spacing:.05em}
     </svg>
   </div>
   <h2>Drop files here</h2>
-  <p>or click to browse · server upload limit applies (see README)</p>
+  <p>or click to browse · JPEG · PNG · WebP · GIF · MP4 · MOV · M4V · HEIC · AVIF</p>
   <input type="file" id="picker" multiple hidden
          accept="image/*,video/*,.jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.m4v,.heic,.heif,.avif,.3gp">
 </div>
@@ -310,7 +309,7 @@ footer .mono{font-family:var(--mono);font-size:11.5px;letter-spacing:.05em}
       </label>
       <label class="opt">
         <input type="checkbox" id="optSuffix">
-        <span class="lab">Add “-clean” to the file name
+        <span class="lab">Add "-clean" to the file name
           <span class="hint">Off = you get the same name back, so it drops straight in where the original was.</span>
         </span>
       </label>
@@ -356,7 +355,7 @@ footer .mono{font-family:var(--mono);font-size:11.5px;letter-spacing:.05em}
 
 <footer>
   <span class="mono">NULLFRAME</span>
-  <span>Files are uploaded to the configured server processor. Do not upload sensitive media unless you trust the host.</span>
+  <span>All processing happens in your browser. Your files never leave your device.</span>
 </footer>
 
 </div>
@@ -460,7 +459,7 @@ function jpegLabel(marker, id) {
   if (marker === 0xED && id.startsWith("Photoshop")) return "Photoshop resources / IPTC caption, credit, keywords (APP13)";
   if (marker === 0xEE && id.startsWith("Adobe")) return "Adobe colour transform marker (APP14)";
   if (marker === 0xEC) return "Picture info / Ducky (APP12)";
-  return "Application segment APP" + n + (id ? " — “" + id.slice(0, 18) + "”" : "");
+  return "Application segment APP" + n + (id ? " — "" + id.slice(0, 18) + """ : "");
 }
 
 async function scanJPEG(file, opts) {
@@ -511,7 +510,7 @@ function pngLabel(t) {
     iCCP: "ICC colour profile (iCCP)", sRGB: "sRGB rendering intent", gAMA: "Gamma", cHRM: "Chromaticities",
     dSIG: "Digital signature (dSIG)", prVW: "Preview thumbnail (prVW)", orNT: "Orientation (orNT)",
   };
-  return m[t] || ("Non-essential chunk “" + t + "”");
+  return m[t] || ("Non-essential chunk "" + t + """);
 }
 
 async function scanPNG(file, opts) {
@@ -561,7 +560,7 @@ async function scanWebP(file, opts) {
     else if (type === "XMP ") { drop = true; droppedXMP = true; removed.push({ name: "XMP metadata", size: end - p }); }
     else if (type === "ICCP") { if (!opts.keepICC) { drop = true; droppedICC = true; removed.push({ name: "ICC colour profile", size: end - p }); } }
     else if (!["VP8 ", "VP8L", "VP8X", "ALPH", "ANIM", "ANMF"].includes(type)) {
-      if (opts.unknown) { drop = true; removed.push({ name: "Unrecognised chunk “" + type.trim() + "”", size: end - p }); }
+      if (opts.unknown) { drop = true; removed.push({ name: "Unrecognised chunk "" + type.trim() + """, size: end - p }); }
     }
     if (!drop) { chunks.push({ start: p, end, type }); kept += end - p; }
     if (type === "VP8X") vp8x = { start: p, end };
@@ -614,7 +613,7 @@ async function scanGIF(file, opts) {
       else if (label === 0xFF) {
         const id = printable(buf.subarray(p + 3, p + 14));
         if (id === "NETSCAPE2.0" || id === "ANIMEXTS1.0") keep.push([p, q]);
-        else removed.push({ name: "Application extension “" + id + "”", size: q - p });
+        else removed.push({ name: "Application extension "" + id + """, size: q - p });
       } else keep.push([p, q]);
       p = q; continue;
     }
@@ -920,7 +919,7 @@ function readOpts() {
   };
 }
 
-async function processLocal(file, opts, setStatus) {
+async function process(file, opts, setStatus) {
   const info = await sniff(file);
   if (info.kind === "unknown") {
     throw new Error("Nullframe cannot strip " + info.label + " safely without re-encoding it. Supported: JPEG, PNG, WebP, GIF, MP4, MOV, M4V, HEIC, AVIF.");
@@ -945,23 +944,6 @@ async function processLocal(file, opts, setStatus) {
     out = blobWithPatches(file, r.patches, file.type || "video/mp4"); removed = r.removed;
   }
   return { out, removed, info };
-}
-
-
-async function process(file, opts, setStatus) {
-  setStatus("Uploading securely to the server…");
-  const form = new FormData();
-  form.append("file", file, file.name || "upload.bin");
-  form.append("keepICC", String(!!opts.keepICC));
-  const response = await fetch("/.netlify/functions/nullframe", { method: "POST", body: form });
-  if (!response.ok) {
-    let message = "Server processing failed.";
-    try { const data = await response.json(); message = data.error || message; } catch {}
-    throw new Error(message);
-  }
-  const out = await response.blob();
-  const removedHeader = response.headers.get("X-Metadata-Removed") || "Metadata cleanup attempted";
-  return { out, removed: [removedHeader], info: { label: "Server processed" } };
 }
 
 function outputName(orig, opts) {
