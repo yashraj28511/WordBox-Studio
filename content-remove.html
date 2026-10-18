@@ -275,7 +275,11 @@ footer .mono{font-family:var(--mono);font-size:11.5px;letter-spacing:.05em}
     </svg>
   </div>
   <h2>Drop files here</h2>
-  <p>or click to browse · JPEG · PNG · WebP · GIF · MP4 · MOV · M4V · HEIC · AVIF</p>
+  <p>Drag and drop files anywhere in this box, or choose files from your device.</p>
+  <div class="drop-actions" style="margin-top:16px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
+    <button class="btn primary" id="chooseFiles" type="button" style="pointer-events:auto">Choose files</button>
+    <span class="badge" style="pointer-events:none">JPEG · PNG · WebP · GIF · MP4 · MOV · M4V · HEIC · AVIF</span>
+  </div>
   <input type="file" id="picker" multiple hidden
          accept="image/*,video/*,.jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.m4v,.heic,.heif,.avif,.3gp">
 </div>
@@ -1121,7 +1125,11 @@ async function runQueue() {
 /* ---------- wiring ---------- */
 
 const drop = $("#drop"), picker = $("#picker");
-drop.addEventListener("click", () => picker.click());
+drop.addEventListener("click", (e) => {
+  if (e.target.closest("#chooseFiles")) return;
+  picker.click();
+});
+$("#chooseFiles").addEventListener("click", (e) => { e.stopPropagation(); picker.click(); });
 drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } });
 picker.addEventListener("change", () => { if (picker.files.length) addFiles([...picker.files]); picker.value = ""; });
 
