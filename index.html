@@ -628,13 +628,15 @@
             .hero-graphic { margin-top: 30px; }
         }
 
-        .popular-tools{display:none}\n        .normark-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-        .normark-tool{display:flex;gap:18px;align-items:flex-start;padding:24px;background:linear-gradient(145deg,#121a2d,#0d1220);border:1px solid #263451;border-radius:18px;text-decoration:none;color:#fff;transition:.2s;min-height:190px}
-        .normark-tool:hover{transform:translateY(-4px);border-color:#6d7df6;box-shadow:0 12px 38px #3b82f626}
-        .normark-tool .nt-icon{width:52px;height:52px;flex:none;border-radius:15px;display:grid;place-items:center;font-size:22px;background:#4338ca30;color:#a5b4fc;border:1px solid #6366f155}
-        .normark-tool h3{font-size:19px;margin:3px 0 8px}.normark-tool p{font-size:13px;color:var(--text-muted);line-height:1.6;margin:0 0 16px}
-        .normark-tool .nt-link{font-size:12px;color:#a5b4fc;font-weight:700}
-        @media(max-width:650px){.normark-tools{grid-template-columns:1fr}.normark-tool{padding:19px}}
+        .popular-tools{display:none}
+        .normark-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+        .normark-tool{display:flex;flex-direction:column;gap:12px;padding:24px;background:#0f1729;border:1px solid #1f2d47;border-radius:16px;text-decoration:none;color:#fff;transition:.2s;position:relative}
+        .normark-tool:hover{transform:translateY(-2px);border-color:#3b82f6;background:#121b2e}
+        .normark-tool .nt-icon{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;font-size:22px;background:#1a2538;color:#fff;margin-bottom:8px}
+        .normark-tool h3{font-size:17px;margin:0 0 8px;font-weight:600}
+        .normark-tool p{font-size:13px;color:#8b95a5;line-height:1.5;margin:0;flex:1}
+        .normark-tool .nt-arrow{position:absolute;top:20px;right:20px;color:#8b95a5;font-size:14px}
+        @media(max-width:650px){.normark-tools{grid-template-columns:1fr}}
 
     </style>
 </head>
@@ -730,12 +732,16 @@
                 </div>
                 <div class="normark-tools">
                     <a class="normark-tool" href="caption-generator.html">
+                        <i class="fa-solid fa-arrow-right nt-arrow"></i>
                         <div class="nt-icon"><i class="fa-solid fa-closed-captioning"></i></div>
-                        <div><h3>Caption Generator</h3><p>Create word-by-word captions, edit timing and styling, and export captioned videos with WordBox Studio.</p><span class="nt-link">Open Caption Generator <i class="fa-solid fa-arrow-right"></i></span></div>
+                        <h3>Caption Generator</h3>
+                        <p>Create word-by-word captions, edit timing and styling, and export captioned videos with WordBox Studio.</p>
                     </a>
                     <a class="normark-tool" href="content-remove.html">
+                        <i class="fa-solid fa-arrow-right nt-arrow"></i>
                         <div class="nt-icon"><i class="fa-solid fa-eraser"></i></div>
-                        <div><h3>AI Content Remover</h3><p>Clean supported images and videos by removing embedded metadata and provenance information.</p><span class="nt-link">Open Content Remover <i class="fa-solid fa-arrow-right"></i></span></div>
+                        <h3>AI Content Remover</h3>
+                        <p>Clean supported images and videos by removing embedded metadata and provenance information.</p>
                     </a>
                 </div>
             </section>
