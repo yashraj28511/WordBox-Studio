@@ -1131,6 +1131,18 @@ window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => e.preventDefault());
 window.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) addFiles(f); });
 
+const drop = $("#drop"), picker = $("#picker");
+drop.addEventListener("click", () => picker.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } });
+picker.addEventListener("change", () => { if (picker.files.length) addFiles([...picker.files]); picker.value = ""; });
+
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); if (ev === "dragleave" && drop.contains(e.relatedTarget)) return; drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => { if (e.dataTransfer?.files?.length) addFiles([...e.dataTransfer.files]); });
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+window.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) addFiles(f); });
+
 $("#btnClear").addEventListener("click", () => {
   for (const i of items) if (i.url) URL.revokeObjectURL(i.url);
   items.length = 0; list.innerHTML = ""; refreshCounts();
