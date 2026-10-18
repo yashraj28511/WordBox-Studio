@@ -1,0 +1,8 @@
+{
+  "name": "normark",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "exiftool-vendored": "^30.0.0"
+  }
+}

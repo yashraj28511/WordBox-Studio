@@ -5,7 +5,6 @@
 [functions]
   node_bundler = "esbuild"
 
-# Cache the self-hosted MP4 encoder so repeat exports load instantly.
 [[headers]]
   for = "/vendor/ffmpeg/*"
   [headers.values]
