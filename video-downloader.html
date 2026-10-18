@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Normark — Social Media Video Downloader</title>
+<style>
+  :root {
+    --bg:#0f1115;
+    --card:#1a1d24;
+    --accent:#4f8cff;
+    --text:#e8eaed;
+    --muted:#9aa0a6;
+    --border:#2c313c;
+  }
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body {
+    min-height:100vh; display:flex; flex-direction:column;
+    font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background: radial-gradient(circle at 20% 10%, #1e2a44 0%, var(--bg) 55%);
+    color: var(--text);
+  }
+
+  /* Header */
+  header {
+    padding:1.5rem 2rem;
+    border-bottom:1px solid var(--border);
+    background:rgba(26,29,36,0.8);
+    backdrop-filter:blur(10px);
+  }
+  .logo-area {
+    display:flex; align-items:center; gap:0.75rem;
+    font-size:1.25rem; font-weight:700;
+    color:var(--text); text-decoration:none;
+  }
+  .logo-icon {
+    width:32px; height:32px;
+    background:linear-gradient(135deg, #4f8cff, #8b5cf6);
+    border-radius:8px; display:flex; align-items:center; justify-content:center;
+    font-size:18px;
+  }
+
+  /* Main */
+  main {
+    flex:1; display:flex; align-items:center; justify-content:center;
+    padding:2rem 1rem;
+  }
+  .card {
+    width:100%; max-width:640px; background:var(--card);
+    border-radius:16px; padding:2.5rem; box-shadow:0 20px 60px rgba(0,0,0,.45);
+  }
+  h1 { font-size:2rem; margin-bottom:0.5rem; }
+  .sub { color:var(--muted); font-size:0.95rem; margin-bottom:2rem; }
+
+  input {
+    width:100%; padding:0.95rem 1.2rem; border-radius:12px; border:1px solid var(--border);
+    background:#12151b; color:var(--text); font-size:1rem; outline:none;
+    transition:border-color 0.2s;
+  }
+  input:focus { border-color:var(--accent); }
+
+  .row { display:flex; gap:0.75rem; margin-top:1rem; flex-wrap:wrap; }
+  button {
+    flex:1; min-width:180px; padding:1rem 1.5rem; border:none; border-radius:12px;
+    background:var(--accent); color:#fff; font-weight:600; font-size:1rem;
+    cursor:pointer; transition:all 0.2s;
+  }
+  button:hover { transform:translateY(-1px); box-shadow:0 4px 12px rgba(79,140,255,0.4); }
+  button:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+
+  .status {
+    margin-top:1.25rem; padding:0.75rem 1rem; border-radius:10px;
+    font-size:0.9rem; min-height:1.2em;
+    background:rgba(79,140,255,0.1); color:var(--accent);
+    border:1px solid rgba(79,140,255,0.2);
+    display:none;
+  }
+  .status.show { display:block; }
+  .status.error {
+    background:rgba(255,107,107,0.1);
+    color:#ff6b6b;
+    border-color:rgba(255,107,107,0.2);
+  }
+
+  .video-info {
+    margin-top:1.5rem; padding:1.25rem;
+    background:#12151b; border:1px solid var(--border);
+    border-radius:12px; display:none;
+  }
+  .video-info.show { display:block; }
+  .video-info img {
+    width:100%; border-radius:8px; margin-bottom:1rem;
+  }
+  .video-info h3 {
+    font-size:1.1rem; margin-bottom:0.75rem;
+  }
+  .video-meta {
+    display:flex; gap:1rem; flex-wrap:wrap;
+    font-size:0.85rem; color:var(--muted); margin-bottom:1rem;
+  }
+  .download-btn {
+    width:100%; margin-top:0.75rem;
+  }
+
+  .supported {
+    margin-top:1.5rem; padding:1rem 1.2rem;
+    background:rgba(139,92,246,0.1);
+    border:1px solid rgba(139,92,246,0.2);
+    border-radius:10px;
+    font-size:0.85rem; color:#a78bfa;
+  }
+  .supported strong { color:#c4b5fd; }
+
+  .legal {
+    margin-top:1.75rem; padding-top:1.5rem;
+    border-top:1px solid var(--border);
+    font-size:0.8rem; color:var(--muted); line-height:1.5;
+  }
+  .legal a { color:var(--accent); text-decoration:none; }
+  .legal a:hover { text-decoration:underline; }
+
+  .note {
+    margin-top:1rem; padding:1rem;
+    background:rgba(232,163,61,0.1);
+    border:1px solid rgba(232,163,61,0.2);
+    border-radius:10px;
+    font-size:0.85rem; color:#e8a33d;
+    line-height:1.5;
+  }
+
+  @media (max-width:600px) {
+    .card { padding:1.75rem; }
+    h1 { font-size:1.6rem; }
+    button { min-width:140px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="index.html" class="logo-area">
+    <div class="logo-icon">⚡</div>
+    <span>Normark</span>
+  </a>
+</header>
+
+<main>
+<div class="card">
+  <h1>Social Media Video Downloader</h1>
+  <div class="sub">Download videos from YouTube, Instagram, TikTok, and more</div>
+
+  <input id="url" type="url" placeholder="Paste video URL here..." autocomplete="off"/>
+  <div class="row">
+    <button id="downloadBtn" onclick="handleDownload()">Get Download Link</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="video-info" id="videoInfo">
+    <img id="thumbnail" alt="Video thumbnail"/>
+    <h3 id="title"></h3>
+    <div class="video-meta">
+      <span id="duration"></span>
+      <span id="quality"></span>
+    </div>
+    <button class="download-btn" id="finalDownload">Download Video</button>
+  </div>
+
+  <div class="note">
+    <strong>Note:</strong> This tool uses third-party services to fetch download links.
+    Download speeds and availability may vary. For best results, use YouTube or Instagram links.
+  </div>
+
+  <div class="supported">
+    <strong>Supported platforms:</strong> YouTube, Instagram, TikTok, Facebook, Twitter/X, Vimeo, and more
+  </div>
+
+  <div class="legal">
+    Only download content you own or have permission to save.
+    Users are responsible for complying with copyright laws and platform terms of service.
+    This tool does not store any videos.
+    <br><a href="index.html">← Back to Home</a>
+  </div>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const statusEl = $('status');
+const videoInfoEl = $('videoInfo');
+let downloadUrl = null;
+
+function setStatus(msg, isError=false) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status show' + (isError ? ' error' : '');
+}
+
+function hideStatus() {
+  statusEl.classList.remove('show');
+}
+
+function showVideoInfo(data) {
+  if (data.thumbnail) {
+    $('thumbnail').src = data.thumbnail;
+    $('thumbnail').style.display = 'block';
+  } else {
+    $('thumbnail').style.display = 'none';
+  }
+
+  $('title').textContent = data.title || 'Video';
+
+  let metaHtml = '';
+  if (data.duration) {
+    metaHtml += `<span>⏱ ${formatDuration(data.duration)}</span>`;
+  }
+  if (data.quality) {
+    metaHtml += `<span>📹 ${data.quality}</span>`;
+  }
+  $('videoInfo').querySelector('.video-meta').innerHTML = metaHtml;
+
+  downloadUrl = data.url;
+  videoInfoEl.classList.add('show');
+}
+
+function hideVideoInfo() {
+  videoInfoEl.classList.remove('show');
+  downloadUrl = null;
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return '';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+async function handleDownload() {
+  const url = $('url').value.trim();
+
+  if (!url) {
+    setStatus('Please paste a video URL.', true);
+    return;
+  }
+
+  // Basic URL validation
+  try {
+    new URL(url);
+  } catch {
+    setStatus('Please enter a valid URL.', true);
+    return;
+  }
+
+  hideVideoInfo();
+  setStatus('Fetching video information...');
+  $('downloadBtn').disabled = true;
+
+  try {
+    // Using a free API service (cobalt.tools API)
+    const response = await fetch('https://api.cobalt.tools/api/json', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        url: url,
+        vCodec: 'h264',
+        vQuality: '1080',
+        aFormat: 'mp3',
+        filenamePattern: 'classic',
+        isAudioOnly: false
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch video information');
+    }
+
+    const data = await response.json();
+
+    if (data.status === 'error' || data.status === 'rate-limit') {
+      throw new Error(data.text || 'Failed to process video');
+    }
+
+    if (data.status === 'redirect' || data.status === 'stream') {
+      const videoUrl = data.url;
+
+      showVideoInfo({
+        title: 'Video Ready',
+        url: videoUrl,
+        thumbnail: data.thumbnail,
+        quality: '1080p (Best Available)'
+      });
+
+      setStatus('✓ Video ready for download!');
+      setTimeout(hideStatus, 3000);
+    } else if (data.status === 'picker') {
+      // Multiple video options
+      if (data.picker && data.picker.length > 0) {
+        const bestVideo = data.picker[0];
+        showVideoInfo({
+          title: 'Video Ready',
+          url: bestVideo.url,
+          thumbnail: bestVideo.thumb,
+          quality: 'Best Available'
+        });
+        setStatus('✓ Video ready for download!');
+        setTimeout(hideStatus, 3000);
+      }
+    } else {
+      throw new Error('Unsupported video format or platform');
+    }
+
+  } catch (error) {
+    console.error('Download error:', error);
+    setStatus('Error: ' + error.message + '. Try using YouTube or Instagram links.', true);
+    hideVideoInfo();
+  } finally {
+    $('downloadBtn').disabled = false;
+  }
+}
+
+$('finalDownload').onclick = function() {
+  if (downloadUrl) {
+    // Open download URL in new tab
+    window.open(downloadUrl, '_blank');
+    setStatus('✓ Download started! Check your downloads folder.');
+    setTimeout(hideStatus, 5000);
+  }
+};
+
+// Allow Enter key to submit
+$('url').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    handleDownload();
+  }
+});
+</script>
+</body>
+</html>
