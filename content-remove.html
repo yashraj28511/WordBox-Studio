@@ -460,7 +460,7 @@ function jpegLabel(marker, id) {
   if (marker === 0xED && id.startsWith("Photoshop")) return "Photoshop resources / IPTC caption, credit, keywords (APP13)";
   if (marker === 0xEE && id.startsWith("Adobe")) return "Adobe colour transform marker (APP14)";
   if (marker === 0xEC) return "Picture info / Ducky (APP12)";
-  return "Application segment APP" + n + (id ? " — "" + id.slice(0, 18) + """ : "");
+  return "Application segment APP" + n + (id ? " - \"" + id.slice(0, 18) + "\"" : "");
 }
 
 async function scanJPEG(file, opts) {
@@ -511,7 +511,7 @@ function pngLabel(t) {
     iCCP: "ICC colour profile (iCCP)", sRGB: "sRGB rendering intent", gAMA: "Gamma", cHRM: "Chromaticities",
     dSIG: "Digital signature (dSIG)", prVW: "Preview thumbnail (prVW)", orNT: "Orientation (orNT)",
   };
-  return m[t] || ("Non-essential chunk "" + t + """);
+  return m[t] || ("Non-essential chunk \"" + t + "\"");
 }
 
 async function scanPNG(file, opts) {
@@ -561,7 +561,7 @@ async function scanWebP(file, opts) {
     else if (type === "XMP ") { drop = true; droppedXMP = true; removed.push({ name: "XMP metadata", size: end - p }); }
     else if (type === "ICCP") { if (!opts.keepICC) { drop = true; droppedICC = true; removed.push({ name: "ICC colour profile", size: end - p }); } }
     else if (!["VP8 ", "VP8L", "VP8X", "ALPH", "ANIM", "ANMF"].includes(type)) {
-      if (opts.unknown) { drop = true; removed.push({ name: "Unrecognised chunk "" + type.trim() + """, size: end - p }); }
+      if (opts.unknown) { drop = true; removed.push({ name: "Unrecognised chunk \"" + type.trim() + "\"", size: end - p }); }
     }
     if (!drop) { chunks.push({ start: p, end, type }); kept += end - p; }
     if (type === "VP8X") vp8x = { start: p, end };
@@ -614,7 +614,7 @@ async function scanGIF(file, opts) {
       else if (label === 0xFF) {
         const id = printable(buf.subarray(p + 3, p + 14));
         if (id === "NETSCAPE2.0" || id === "ANIMEXTS1.0") keep.push([p, q]);
-        else removed.push({ name: "Application extension "" + id + """, size: q - p });
+        else removed.push({ name: "Application extension \"" + id + "\"", size: q - p });
       } else keep.push([p, q]);
       p = q; continue;
     }
@@ -651,7 +651,7 @@ function isoBoxLabel(type, extra) {
     skip: "Padding atom with payload",
     free: "Free-space atom with payload",
   };
-  return (m[type] || ('Custom atom "' + type.trim() + '"')) + (extra ? " — " + extra : "");
+  return (m[type] || ('Custom atom "' + type.trim() + '"')) + (extra ? " - " + extra : "");
 }
 
 /** Replace a box with an equivalent-size `free` box whose payload is zeroed. */
@@ -1119,18 +1119,6 @@ async function runQueue() {
 }
 
 /* ---------- wiring ---------- */
-
-const drop = $("#drop"), picker = $("#picker");
-drop.addEventListener("click", () => picker.click());
-drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } });
-picker.addEventListener("change", () => { if (picker.files.length) addFiles([...picker.files]); picker.value = ""; });
-
-["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
-["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); if (ev === "dragleave" && drop.contains(e.relatedTarget)) return; drop.classList.remove("over"); }));
-drop.addEventListener("drop", (e) => { if (e.dataTransfer?.files?.length) addFiles([...e.dataTransfer.files]); });
-window.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", (e) => e.preventDefault());
-window.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) addFiles(f); });
 
 const drop = $("#drop"), picker = $("#picker");
 drop.addEventListener("click", () => picker.click());
