@@ -1,19 +1,13 @@
-
 {
   "headers": [
     {
       "source": "/vendor/ffmpeg/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     }
   ],
   "functions": {
-    "api/transcribe.js": {
-      "maxDuration": 60
-    }
+    "api/transcribe.js": { "maxDuration": 60 }
   }
 }
