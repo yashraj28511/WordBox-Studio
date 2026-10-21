@@ -3,7 +3,7 @@
 When you click **Transcribe**:
 1. The video is converted to small mono audio **in your browser** (ffmpeg.wasm).
 2. The audio is split into ~8-minute chunks (~3 MB each).
-3. Each chunk is sent to `/api/transcribe` (OpenAI Whisper) and the text is joined.
+3. Each chunk is sent to `/api/transcribe` (Groq Whisper) and the text is joined.
 
 So a 926 MB video no longer hits the 400 MB limit.
 
@@ -11,7 +11,7 @@ So a 926 MB video no longer hits the 400 MB limit.
 1. Unzip, then `npm install`
 2. Push to GitHub and import the repo in Vercel (framework: Vite is auto-detected),
    or run `npx vercel` in this folder.
-3. Vercel > Project > Settings > Environment Variables: add `OPENAI_API_KEY`.
+3. Vercel > Project > Settings > Environment Variables: add `TRANSCRIPTION_API_KEY` and set it to your Groq API key.
 4. Redeploy.
 
 ## Run locally
@@ -21,7 +21,7 @@ So a 926 MB video no longer hits the 400 MB limit.
 (`npm run dev` alone serves only the page, not the API.)
 
 ## Using a different transcription service
-Edit `api/transcribe.js` (the single fetch call). Chunks arrive as raw `audio/mp4` bytes.
+Transcription uses Groq's `whisper-large-v3` model at `https://api.groq.com/openai/v1/audio/transcriptions`. Set `TRANSCRIPTION_API_KEY` in your deployment environment; do not expose the key in browser code.
 
 ## Files
 - `src/audio-extract.js` - the video -> audio chunks feature
