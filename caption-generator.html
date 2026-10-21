@@ -30,6 +30,7 @@
         </div>
       </div>
       <div class="actions"><a class="btn ghost" href="index.html" style="text-decoration:none">⌂ Home</a>
+        <button class="btn ghost" id="btnTools" title="Switch to another Normark AI tool">✦ AI tools</button>
         <button class="btn ghost" id="btnPickVideo2">🎬 Import video</button>
         <button class="btn ghost" id="btnPickAudio">🎵 Audio only</button>
         <button class="btn primary" id="btnExportTop">Export</button>
@@ -617,6 +618,51 @@
     <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
     <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
   </aside>
+</div>
+
+<!-- AI tool picker: the home page's tool cards, available from inside the editor. -->
+<div class="modal-back" id="toolsModal" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="toolsModalTitle">
+    <h3 id="toolsModalTitle">✦ Your AI tools</h3>
+    <p class="modal-sub">Pick a tool to switch to. Your work here is not saved automatically — use <b>Save project to my PC</b> in the Export tab first if you want to come back to it.</p>
+    <div class="tool-grid">
+      <div class="tool-pick current">
+        <span class="tp-chip">Current</span>
+        <div class="tp-icon">🄲</div>
+        <div>
+          <h4>Caption Generator</h4>
+          <p>Word-by-word captions, timing and styling, burned-in video export.</p>
+        </div>
+      </div>
+      <a class="tool-pick" href="content-remove.html">
+        <span class="tp-arrow">→</span>
+        <div class="tp-icon">🧽</div>
+        <div>
+          <h4>AI Content Remover</h4>
+          <p>Clean supported images and videos by removing embedded metadata and provenance information.</p>
+        </div>
+      </a>
+      <a class="tool-pick" href="video-downloader.html">
+        <span class="tp-arrow">→</span>
+        <div class="tp-icon">⬇</div>
+        <div>
+          <h4>Social Media Video Downloader</h4>
+          <p>Download videos from YouTube and Instagram in high-quality MP4 straight to your device.</p>
+        </div>
+      </a>
+      <a class="tool-pick" href="index.html">
+        <span class="tp-arrow">→</span>
+        <div class="tp-icon">⌂</div>
+        <div>
+          <h4>All tools / Home</h4>
+          <p>Back to the Normark home page for everything else.</p>
+        </div>
+      </a>
+    </div>
+    <div class="row modal-actions">
+      <button class="btn ghost grow" id="toolsClose">Keep editing</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-back" id="sizeModal" hidden>

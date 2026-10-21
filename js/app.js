@@ -4203,6 +4203,18 @@ function setupSpelling(){
   });
 }
 
+/* The home page's AI tool cards, reachable from inside the editor. */
+function setupToolPicker(){
+  const back = $("#toolsModal"), open = $("#btnTools"), close = $("#toolsClose");
+  if (!back || !open) return;
+  const show = on => { back.hidden = !on; };
+  open.addEventListener("click", () => show(true));
+  if (close) close.addEventListener("click", () => show(false));
+  back.addEventListener("click", e => { if (e.target === back) show(false); });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !back.hidden){ show(false); e.stopPropagation(); }
+  });
+}
 function setupUI(){
   $$("#tabs button").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -4462,6 +4474,7 @@ function readSubtitleFile(file){
 function boot(){
   normalizeStyle();
   setupUI();
+  setupToolPicker();
   setupSizeDialog();
   setupSpelling();
   setupZoom();
