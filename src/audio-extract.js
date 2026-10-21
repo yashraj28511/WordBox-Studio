@@ -1,89 +1,202 @@
-// Turns a (possibly huge) video/audio file into small mono AAC chunks, in the browser.
-// Each chunk is ~8 minutes (~3 MB), which fits Vercel's 4.5 MB request limit
-// and OpenAI's 25 MB limit comfortably.
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { toBlobURL } from '@ffmpeg/util';
 
-const CORE_BASE = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-const SEGMENT_SECONDS = 480;
-const PASS_THROUGH_MAX = 3.5 * 1024 * 1024; // small audio files are sent as-is
+const CORE_BASE =
+  'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+
+// Keep WAV chunks below Vercel's 4.5 MB request-body limit.
+const SEGMENT_SECONDS = 90;
 
 let ffmpegPromise = null;
+
 function getFFmpeg() {
   if (!ffmpegPromise) {
     ffmpegPromise = (async () => {
       const ffmpeg = new FFmpeg();
+
       await ffmpeg.load({
-        coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, 'application/wasm'),
+        coreURL: await toBlobURL(
+          `${CORE_BASE}/ffmpeg-core.js`,
+          'text/javascript'
+        ),
+        wasmURL: await toBlobURL(
+          `${CORE_BASE}/ffmpeg-core.wasm`,
+          'application/wasm'
+        )
       });
+
       return ffmpeg;
-    })().catch((e) => { ffmpegPromise = null; throw e; });
+    })().catch((error) => {
+      ffmpegPromise = null;
+      throw error;
+    });
   }
+
   return ffmpegPromise;
 }
 
 function isAudio(file) {
-  if (file.type) return file.type.startsWith('audio/');
-  return /\.(mp3|m4a|wav|aac|ogg|flac|opus)$/i.test(file.name);
+  if (file.type?.startsWith('audio/')) return true;
+
+  return /\.(mp3|m4a|wav|aac|ogg|flac|opus|wma|mp4|mov|webm|mkv|avi)$/i
+    .test(file.name);
 }
 
 /**
- * @param {File} file
- * @param {(fraction:number, stage:string)=>void} onProgress
- * @returns {Promise<File[]>} one or more small audio files, in order
+ * Extracts and converts audio to mono, 16 kHz, 16-bit PCM WAV.
+ * Returns small WAV files in chronological order.
  */
-export async function extractAudioChunks(file, onProgress = () => {}) {
-  if (isAudio(file) && file.size <= PASS_THROUGH_MAX) return [file];
+export async function extractAudioChunks(
+  file,
+  onProgress = () => {}
+) {
+  if (!file || !file.size) {
+    throw new Error('The selected file is empty.');
+  }
+
+  if (!isAudio(file)) {
+    throw new Error('Please select a supported audio or video file.');
+  }
 
   onProgress(0, 'Loading converter');
+
   const ffmpeg = await getFFmpeg();
+  const inputDir = '/input';
+  const inputName = file.name.replace(/[\\/]/g, '_');
+  const inputPath = `${inputDir}/${inputName}`;
+  const outputPattern = 'chunk_%03d.wav';
 
-  const onProg = ({ progress }) => {
-    if (Number.isFinite(progress)) onProgress(Math.min(Math.max(progress, 0), 1), 'Extracting audio');
+  const progressHandler = ({ progress }) => {
+    if (Number.isFinite(progress)) {
+      onProgress(
+        Math.max(0, Math.min(1, progress)),
+        'Extracting audio'
+      );
+    }
   };
-  ffmpeg.on('progress', onProg);
 
-  const dir = '/input';
+  ffmpeg.on('progress', progressHandler);
+
   let mounted = false;
-  const written = [];
+  const outputFiles = [];
 
   try {
-    await ffmpeg.createDir(dir);
-    await ffmpeg.mount('WORKERFS', { files: [file] }, dir); // no full load into RAM
+    // Clean up chunks left over from an earlier run.
+    const existingFiles = await ffmpeg.listDir('/');
+
+    for (const entry of existingFiles) {
+      if (!entry.isDir && /^chunk_\d+\.wav$/.test(entry.name)) {
+        await ffmpeg.deleteFile(entry.name);
+      }
+    }
+
+    await ffmpeg.createDir(inputDir);
+
+    await ffmpeg.mount(
+      'WORKERFS',
+      { files: [file] },
+      inputDir
+    );
+
     mounted = true;
 
-    const code = await ffmpeg.exec([
-      '-i', `${dir}/${file.name}`,
-      '-vn', '-map', '0:a:0',
-      '-ac', '1', '-ar', '16000',
-      '-c:a', 'aac', '-b:a', '48k',
-      '-f', 'segment', '-segment_format', 'mp4',
+    onProgress(0.02, 'Converting audio');
+
+    const exitCode = await ffmpeg.exec([
+      '-hide_banner',
+      '-i', inputPath,
+      '-map', '0:a:0',
+      '-vn',
+      '-ac', '1',
+      '-ar', '16000',
+      '-c:a', 'pcm_s16le',
+      '-f', 'segment',
+      '-segment_format', 'wav',
       '-segment_time', String(SEGMENT_SECONDS),
       '-reset_timestamps', '1',
-      'chunk_%03d.m4a',
+      outputPattern
     ]);
-    if (code !== 0) throw new Error('Could not extract audio (no audio track, or unsupported format).');
 
-    const names = (await ffmpeg.listDir('/'))
-      .filter((e) => !e.isDir && /^chunk_\d+\.m4a$/.test(e.name))
-      .map((e) => e.name)
-      .sort();
-    if (!names.length) throw new Error('No audio was produced.');
-
-    const base = file.name.replace(/\.[^.]+$/, '') || 'audio';
-    const out = [];
-    for (const name of names) {
-      const data = await ffmpeg.readFile(name);
-      written.push(name);
-      out.push(new File([data.buffer], `${base}_${name}`, { type: 'audio/mp4' }));
+    if (exitCode !== 0) {
+      throw new Error(
+        'Audio conversion failed. The file may be unsupported or contain no audio track.'
+      );
     }
-    return out;
+
+    const entries = await ffmpeg.listDir('/');
+
+    const names = entries
+      .filter(
+        (entry) =>
+          !entry.isDir && /^chunk_\d+\.wav$/.test(entry.name)
+      )
+      .map((entry) => entry.name)
+      .sort();
+
+    if (!names.length) {
+      throw new Error('No audio chunks were generated.');
+    }
+
+    const baseName =
+      file.name.replace(/\.[^.]+$/, '').replace(/[\\/]/g, '_') ||
+      'audio';
+
+    const chunks = [];
+
+    for (let index = 0; index < names.length; index++) {
+      const name = names[index];
+      const data = await ffmpeg.readFile(name);
+
+      if (!(data instanceof Uint8Array) || data.length === 0) {
+        throw new Error(`Audio chunk ${index + 1} is empty.`);
+      }
+
+      // WAV files should begin with RIFF and WAVE markers.
+      const validWav =
+        data.length >= 12 &&
+        String.fromCharCode(...data.slice(0, 4)) === 'RIFF' &&
+        String.fromCharCode(...data.slice(8, 12)) === 'WAVE';
+
+      if (!validWav) {
+        throw new Error(
+          `Chunk ${index + 1} is not a valid WAV file.`
+        );
+      }
+
+      const chunk = new File(
+        [data],
+        `${baseName}_part_${String(index + 1).padStart(3, '0')}.wav`,
+        { type: 'audio/wav' }
+      );
+
+      chunks.push(chunk);
+      outputFiles.push(name);
+
+      onProgress(
+        0.1 + 0.9 * ((index + 1) / names.length),
+        'Preparing audio chunks'
+      );
+    }
+
+    return chunks;
   } finally {
-    ffmpeg.off('progress', onProg);
-    for (const n of written) { try { await ffmpeg.deleteFile(n); } catch {} }
-    if (mounted) { try { await ffmpeg.unmount(dir); } catch {} }
-    try { await ffmpeg.deleteDir(dir); } catch {}
+    ffmpeg.off('progress', progressHandler);
+
+    for (const name of outputFiles) {
+      try {
+        await ffmpeg.deleteFile(name);
+      } catch {}
+    }
+
+    if (mounted) {
+      try {
+        await ffmpeg.unmount(inputDir);
+      } catch {}
+    }
+
+    try {
+      await ffmpeg.deleteDir(inputDir);
+    } catch {}
   }
 }
