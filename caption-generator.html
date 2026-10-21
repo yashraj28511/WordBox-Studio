@@ -12,25 +12,16 @@
 <body>
 
 <div class="app">
-  <aside class="ad-rail left">
-    <div class="ad-slot">
-      <b>Ad space</b>
-      <span>160 × 600</span>
-      <p class="ad-note">Paste your ad network snippet here.</p>
-    </div>
-  </aside>
-
   <main class="main">
     <header class="topbar">
       <div class="brand">
         <div class="logo">W</div>
         <div>
           <h1><a href="index.html" style="color:inherit;text-decoration:none">Normark</a> <span>Caption Generator</span></h1>
-          <p>Word-by-word captions · hosted transcription</p>
+          <p>Make captions in four simple steps</p>
         </div>
       </div>
       <div class="actions"><a class="btn ghost" href="index.html" style="text-decoration:none">⌂ Home</a>
-        <button class="btn ghost" id="btnTools" title="Switch to another Normark AI tool">✦ AI tools</button>
         <button class="btn ghost" id="btnPickVideo2">🎬 Import video</button>
         <button class="btn ghost" id="btnPickAudio">🎵 Audio only</button>
         <button class="btn primary" id="btnExportTop">Export</button>
@@ -47,8 +38,8 @@
         </div>
         <div class="empty" id="emptyState">
           <div class="empty-icon">▶</div>
-          <h2>Drop a video to begin</h2>
-          <p>Use <b>Import video</b> for the full picture, or <b>Audio only</b> to keep just the sound and let your background color shine through.</p>
+          <h2>Start by adding your video or audio</h2>
+          <p>Upload a file, generate timed captions, customize the look, then export your finished video.</p>
           <div class="empty-actions">
             <button class="btn primary" id="btnPickVideo">🎬 Import video</button>
             <button class="btn" id="btnPickAudioEmpty">🎵 Audio only</button>
@@ -81,18 +72,18 @@
   </main>
 
   <aside class="inspector">
-    <nav class="tabs" id="tabs">
-      <button data-tab="captions" class="active">Captions</button>
-      <button data-tab="transcribe">Transcribe</button>
-      <button data-tab="edit">Edit</button>
-      <button data-tab="style">Style</button>
+    <nav class="tabs" id="tabs" aria-label="Editor steps">
+      <button data-tab="transcribe" class="active">1. Transcribe</button>
+      <button data-tab="captions">2. Captions</button>
+      <button data-tab="style">3. Style</button>
       <button data-tab="animate">Animate</button>
-      <button data-tab="export">Export</button>
+      <button data-tab="edit">Edit</button>
+      <button data-tab="export">4. Export</button>
     </nav>
 
     <div class="tab-body">
       <!-- CAPTIONS -->
-      <div class="tab-page active" data-page="captions">
+      <div class="tab-page" data-page="captions">
         <div class="field">
           <label>Subtitle file</label>
           <button class="btn full" id="btnPickSrt">Load .srt / .vtt file</button>
@@ -120,12 +111,12 @@
       </div>
 
       <!-- TRANSCRIBE -->
-      <div class="tab-page" data-page="transcribe">
+      <div class="tab-page active" data-page="transcribe">
         <div class="hint">
-          Transcription uses <b>Groq-hosted Whisper</b>. The model runs on Groq servers, so visitors do not download model files. Your audio is uploaded securely through a Netlify Function; the API key stays server-side.
+          Add a video or audio file first. WordBox will detect speech and create timed captions automatically.
         </div>
         <div class="field">
-          <label>Whisper model</label>
+          <label>Transcription model</label>
           <select id="trModel">
             <option value="whisper-large-v3-turbo" selected>Groq Whisper Large v3 Turbo — hosted</option>
           </select>
@@ -156,9 +147,9 @@
             <input type="checkbox" id="trBreakPunct" checked>
           </div>
         </div>
-        <button class="btn primary full" id="btnTranscribe">Transcribe video</button>
+        <button class="btn primary full" id="btnTranscribe">Transcribe audio into captions</button>
         <div class="progress" id="trProgress"><i></i></div>
-        <div class="hint" id="trStatus">Load a video first, then press Transcribe.</div>
+        <div class="hint" id="trStatus">Ready when your media is loaded. Choose a language or leave Auto detect, then transcribe.</div>
       </div>
 
       <!-- EDIT -->
@@ -614,55 +605,6 @@
     </div>
   </aside>
 
-  <aside class="ad-rail right">
-    <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
-    <div class="ad-slot small"><b>Ad space</b><span>160 × 250</span></div>
-  </aside>
-</div>
-
-<!-- AI tool picker: the home page's tool cards, available from inside the editor. -->
-<div class="modal-back" id="toolsModal" hidden>
-  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="toolsModalTitle">
-    <h3 id="toolsModalTitle">✦ Your AI tools</h3>
-    <p class="modal-sub">Pick a tool to switch to. Your work here is not saved automatically — use <b>Save project to my PC</b> in the Export tab first if you want to come back to it.</p>
-    <div class="tool-grid">
-      <div class="tool-pick current">
-        <span class="tp-chip">Current</span>
-        <div class="tp-icon">🄲</div>
-        <div>
-          <h4>Caption Generator</h4>
-          <p>Word-by-word captions, timing and styling, burned-in video export.</p>
-        </div>
-      </div>
-      <a class="tool-pick" href="content-remove.html">
-        <span class="tp-arrow">→</span>
-        <div class="tp-icon">🧽</div>
-        <div>
-          <h4>AI Content Remover</h4>
-          <p>Clean supported images and videos by removing embedded metadata and provenance information.</p>
-        </div>
-      </a>
-      <a class="tool-pick" href="video-downloader.html">
-        <span class="tp-arrow">→</span>
-        <div class="tp-icon">⬇</div>
-        <div>
-          <h4>Social Media Video Downloader</h4>
-          <p>Download videos from YouTube and Instagram in high-quality MP4 straight to your device.</p>
-        </div>
-      </a>
-      <a class="tool-pick" href="index.html">
-        <span class="tp-arrow">→</span>
-        <div class="tp-icon">⌂</div>
-        <div>
-          <h4>All tools / Home</h4>
-          <p>Back to the Normark home page for everything else.</p>
-        </div>
-      </a>
-    </div>
-    <div class="row modal-actions">
-      <button class="btn ghost grow" id="toolsClose">Keep editing</button>
-    </div>
-  </div>
 </div>
 
 <div class="modal-back" id="sizeModal" hidden>
