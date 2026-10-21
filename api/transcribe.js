@@ -60,7 +60,8 @@ export default async function handler(req, res) {
     );
 
     form.append("model", "whisper-large-v3");
-    form.append("response_format", "text");
+    form.append("response_format", "verbose_json");
+    form.append("timestamp_granularities[]", "word");
 
     const lang = url.searchParams.get("lang");
 
@@ -87,7 +88,14 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({ text: result });
+    let transcription;
+    try {
+      transcription = JSON.parse(result);
+    } catch {
+      return res.status(502).json({ error: "Transcription provider returned invalid JSON." });
+    }
+
+    return res.status(200).json(transcription);
   } catch (error) {
     return res.status(500).json({
       error: String(error.message || error)
