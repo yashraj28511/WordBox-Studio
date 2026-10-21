@@ -435,6 +435,23 @@ function sanitizeWt(wt, start, end){
   if (n && isFinite(end) && out[n-1].e > end && end > out[n-1].s) out[n-1].e = end;
   return out;
 }
+/* When one caption is split into several on-screen chunks (by "words per caption" or by
+   width), the chunks take their times from the words they hold -- so the pauses between
+   them used to leave frames with no caption at all, and the one before the first word or
+   after the last word showed nothing either. Tiling the chunks across the caption's own
+   window fixes that: the caption is on screen for exactly as long as it says it is, and
+   every chunk hands straight over to the next. */
+function tileSegments(subs, cap){
+  const n = subs.length;
+  if (!n) return subs;
+  const starts = subs.map(x => x.start);
+  for (let i = 0; i < n; i++){
+    subs[i].start = (i === 0) ? Math.min(starts[0], cap.start) : subs[i-1].end;
+    subs[i].end   = (i === n - 1) ? Math.max(subs[i].end, cap.end) : Math.max(subs[i].end, starts[i+1]);
+    if (subs[i].end < subs[i].start + 0.02) subs[i].end = subs[i].start + 0.02;
+  }
+  return subs;
+}
 /* Two captions must never be on screen together (they share one position). */
 function separateSegments(segs){
   const order = segs.slice().sort((a, b) => a.start - b.start);
@@ -477,11 +494,13 @@ function buildSegments(captions, st){
       }
       if (group.length) groups.push(group);
       if (groups.length > 1){
+        const subs = [];
         for (const ids of groups){
           const cw = ids.map(i => wt[i]);
-          segs.push({ start: Math.min(...cw.map(x => x.s)), end: Math.max(...cw.map(x => x.e)),
+          subs.push({ start: Math.min(...cw.map(x => x.s)), end: Math.max(...cw.map(x => x.e)),
             words: ids.map(i => clean[i]), em: ids.map(i => pe.em[i]), wt: cw });
         }
+        for (const sub of tileSegments(subs, cap)) segs.push(sub);
         continue;
       }
     }
@@ -492,14 +511,16 @@ function buildSegments(captions, st){
     const k = Math.ceil(clean.length / N);
     const base = Math.floor(clean.length / k), extra = clean.length % k;
     let i0 = 0;
+    const subs = [];
     for (let c = 0; c < k; c++){
       const i1 = i0 + base + (c < extra ? 1 : 0);
       const cw = wt.slice(i0, i1);
       const cs = Math.min(...cw.map(x => x.s));
       const ce = Math.max(...cw.map(x => x.e));
-      segs.push({ start: cs, end: ce, words: clean.slice(i0, i1), em: pe.em.slice(i0, i1), wt: cw });
+      subs.push({ start: cs, end: ce, words: clean.slice(i0, i1), em: pe.em.slice(i0, i1), wt: cw });
       i0 = i1;
     }
+    for (const sub of tileSegments(subs, cap)) segs.push(sub);
   }
   return separateSegments(segs);
 }
@@ -855,11 +876,33 @@ function revealed(seg, i, t, mode){
   if (mode === 1) return t >= w.s;
   return t >= w.s && t < w.e;
 }
-function activeWordIndex(seg, t){
-  for (let i = 0; i < seg.words.length; i++){
-    const w = seg.wt[i];
-    if (t >= w.s && t < w.e) return i;
+/* Word timings almost never fill a caption window end to end: Whisper's first word can
+   start after the caption appears, its last word can finish early, and every pause in
+   between leaves a gap. The words themselves are painted for the whole caption window,
+   so anything keyed to the raw word times — the Word Box, the highlight bar, the active
+   word accent — blinks off at those moments and the style looks like it is missing on
+   some words. These windows tile [seg.start, seg.end] exactly: every instant the caption
+   is on screen belongs to exactly one word, so the box always has a word to sit behind.
+   The raw seg.wt times are left untouched for the reveal/karaoke progress. */
+function wordWindows(seg){
+  const n = seg.words.length;
+  if (seg._ww && seg._ww.length === n) return seg._ww;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++){
+    let s = seg.wt[i].s, e = seg.wt[i].e;
+    if (i === 0) s = Math.min(s, seg.start);
+    if (i === n - 1) e = Math.max(e, seg.end);
+    else e = Math.max(e, seg.wt[i+1].s);   // hold this word through the pause that follows it
+    out[i] = { s, e };
   }
+  for (let i = 1; i < n; i++) if (out[i].s < out[i-1].e) out[i].s = out[i-1].e;
+  for (let i = 0; i < n; i++) if (out[i].e < out[i].s) out[i].e = out[i].s;
+  seg._ww = out;
+  return out;
+}
+function activeWordIndex(seg, t){
+  const ww = wordWindows(seg);
+  for (let i = 0; i < ww.length; i++) if (t >= ww[i].s && t < ww[i].e) return i;
   return -1;
 }
 
@@ -1111,11 +1154,12 @@ function renderBox(ctx, W, H, t, st, seg, L){
   const doOut = st.animOut && st.animIn !== "none";
   // boxMode 0 = a single box that follows the spoken word. Pick that one word up-front
   // (latest start wins) so two boxes can never be drawn in the same frame.
+  const ww = wordWindows(seg);
   let solo = -1;
   if (st.boxMode === 0){
     let best = -Infinity;
     for (let i = 0; i < seg.words.length; i++){
-      const w = seg.wt[i];
+      const w = ww[i];
       if (t >= w.s && t < w.e && w.s >= best){ best = w.s; solo = i; }
     }
   }
@@ -1123,10 +1167,10 @@ function renderBox(ctx, W, H, t, st, seg, L){
     const idxs = line.idxs, rects = line.rects, baseline = line.baseline, boxTop = line.boxTop;
     if (st.boxMode === 3){
       let wi = -1;
-      for (let k = 0; k < idxs.length; k++) if (t >= seg.wt[idxs[k]].s) wi = k;
+      for (let k = 0; k < idxs.length; k++) if (t >= ww[idxs[k]].s) wi = k;
       if (wi < 0) continue;
       const curIdx = idxs[wi];
-      const wStart = seg.wt[curIdx].s, wEnd = seg.wt[curIdx].e;
+      const wStart = ww[curIdx].s, wEnd = ww[curIdx].e;
       const gd = Math.max(0.01, Math.min(st.popTime, (wEnd - wStart) * 0.9));
       let rx, rw;
       if (wi > 0 && t < wStart + gd){
@@ -1134,7 +1178,7 @@ function renderBox(ctx, W, H, t, st, seg, L){
         rx = lerp(rects[wi-1].x, rects[wi].x, u);
         rw = lerp(rects[wi-1].w, rects[wi].w, u);
       } else { rx = rects[wi].x; rw = rects[wi].w; }
-      const firstStart = seg.wt[idxs[0]].s, lastEnd = seg.wt[idxs[idxs.length-1]].e;
+      const firstStart = ww[idxs[0]].s, lastEnd = ww[idxs[idxs.length-1]].e;
       if (t < firstStart || t >= lastEnd) continue;
       const win = Math.max(0.04, lastEnd - firstStart);
       const inDur  = Math.max(0.01, Math.min(st.popTime, doOut ? win*0.5 : win));
@@ -1173,7 +1217,7 @@ function renderBox(ctx, W, H, t, st, seg, L){
     }
     for (let k = 0; k < idxs.length; k++){
       const i = idxs[k];
-      const wi = seg.wt[i];
+      const wi = ww[i];
       if (st.boxMode === 0 && i !== solo) continue;
       let tIn, tOut;
       if (st.boxMode === 0){ tIn = wi.s; tOut = wi.e; }
@@ -2257,7 +2301,10 @@ video.addEventListener("loadedmetadata", function(){
     $("#fontSizeNum").value = state.style.fontSize;
     $("#fsLabel").textContent = state.style.fontSize + " px";
   }
-  renderTimeline(); dirty = true;
+  const rIn = $("#rngIn"), rOut = $("#rngOut");
+  if (rIn && !rIn.value) rIn.value = "0:00.00";
+  if (rOut && !rOut.value) rOut.value = fmtClock(duration);
+  renderTimeline(); syncRangeUI(); dirty = true;
 });
 video.addEventListener("timeupdate", onTimeUpdate);
 video.addEventListener("seeked", () => { dirty = true; });
@@ -2274,6 +2321,7 @@ function onTimeUpdate(){
   $("#timeLabel").textContent = fmtClock(video.currentTime) + " / " + fmtClock(duration);
   const head = document.querySelector(".tl-head");
   if (head) head.style.left = (p * 100) + "%";
+  if (rangeModeValue() === "caption") syncRangeUI();
   highlightActiveRow();
 }
 
@@ -2300,6 +2348,7 @@ function renderTimeline(){
   head.className = "tl-head";
   head.style.left = (duration ? (video.currentTime / duration * 100) : 0) + "%";
   el.appendChild(head);
+  if (typeof syncRangeUI === "function") syncRangeUI();
 }
 function setWc(el, c){
   if (!c.wt){ el.textContent = ""; el.title = "Estimated timing"; el.style.color = "#4d5568"; return; }
@@ -2786,7 +2835,9 @@ function exportVTT(){
   });
   download(new Blob([lines.join("\n")], { type: "text/vtt;charset=utf-8" }), "captions.vtt");
 }
-function paintStage(cx, stageW, stageH, drawScale){
+/* srcImg lets the offline renderer hand in a snapshot of the decoded picture instead of
+   reading the <video> element, which is what makes a seek-free render possible. */
+function paintStage(cx, stageW, stageH, drawScale, atTime, srcImg){
   // Background and video are laid out in full stage units, then scaled to the (possibly
   // smaller) export canvas. Without this the video was drawn at full size onto a smaller
   // canvas, so it looked zoomed-in and cropped.
@@ -2795,14 +2846,15 @@ function paintStage(cx, stageW, stageH, drawScale){
   cx.setTransform(s, 0, 0, s, 0, 0);
   cx.fillStyle = state.style.videoBgColor;
   cx.fillRect(0, 0, stageW, stageH);
-  if (state.mode === "video" && VW && VH && video.videoWidth){
+  if (state.mode === "video" && VW && VH && (srcImg || video.videoWidth)){
     const [dw, dh] = fitContain(VW, VH, stageW, stageH);
     cx.imageSmoothingEnabled = true;
     cx.imageSmoothingQuality = "high";
-    cx.drawImage(video, (stageW - dw) / 2, (stageH - dh) / 2, dw, dh);
+    cx.drawImage(srcImg || video, (stageW - dw) / 2, (stageH - dh) / 2, dw, dh);
   }
   cx.restore();
-  drawCaptions(cx, stageW, stageH, video.currentTime, state.style, state.segments, drawScale);
+  const t = Number.isFinite(atTime) ? atTime : video.currentTime;
+  drawCaptions(cx, stageW, stageH, t, state.style, state.segments, drawScale);
 }
 function exportPNG(){
   if (!state.videoFile){ alert("Load a file first."); return; }
@@ -2813,16 +2865,507 @@ function exportPNG(){
   paintStage(cx, stage.w, stage.h, 1);
   c.toBlob(b => download(b, "frame.png"), "image/png");
 }
-/* MP4 encoder (ffmpeg.wasm) is self-hosted in /vendor/ffmpeg so it loads from the same
-   origin as the site. Loading it from unpkg through blob: URLs breaks the module worker's
-   relative imports (./const.js, ./errors.js), which made ffmpeg.load() hang forever. */
-const FFMPEG_VENDOR = new URL("../vendor/ffmpeg/", import.meta.url).href;
-const EXPORT_MAX_SIDE = 1280; // longest edge of the exported video; wasm encoding is slow above this
+/* =====================================================================
+   RENDER ENGINE
 
-async function transcodeWebMToMP4(webmBlob, onStatus, durationSec){
-  onStatus("Loading MP4 encoder…", 0);
+   Three engines, fastest first. "Auto" walks down the list until one works.
+
+     Turbo   Renders the movie frame by frame, off the clock: seek, paint, hand
+             the frame to the browser's own hardware H.264 encoder (WebCodecs).
+             ffmpeg then only has to copy that stream into an MP4 and bring the
+             source audio along, so nothing is ever encoded twice.
+
+     Frames  Same off-the-clock render, but the frames go through ffmpeg's x264
+             instead, in batches so a long clip never holds thousands of stills
+             in memory. For browsers with no WebCodecs H.264 encoder.
+
+     Classic The original path: play the clip into a MediaRecorder in real time,
+             then transcode. Slowest, kept as the last resort.
+
+   Every engine honours the render range (whole clip, in/out points, or just the
+   caption under the playhead) and every engine can be stopped mid-render.
+   Stopping changes nothing about the project, so you can edit and export again
+   straight away.
+   ===================================================================== */
+const FFMPEG_VENDOR = new URL("../vendor/ffmpeg/", import.meta.url).href;
+
+const JOB = { busy: false, cancel: false, ffmpeg: null, encoder: null, hideTimer: 0 };
+
+function abortError(){ const e = new Error("Render stopped."); e.aborted = true; return e; }
+function throwIfCancelled(){ if (JOB.cancel) throw abortError(); }
+const nextTick = () => new Promise(r => setTimeout(r, 0));
+
+function renderUI(){
+  const prog = $("#recProgress");
+  return { btn: $("#btnExportVideo"), stop: $("#btnStopRender"), prog,
+           bar: prog ? prog.querySelector("i") : null, info: $("#recInfo") };
+}
+function renderStatus(msg, pct){
+  const u = renderUI();
+  if (u.info && msg) u.info.textContent = msg;
+  if (u.bar && Number.isFinite(pct)) u.bar.style.width = clamp(pct, 0, 100).toFixed(1) + "%";
+}
+function setRenderBusy(on){
+  JOB.busy = on;
+  const u = renderUI();
+  if (u.btn){ u.btn.disabled = on; u.btn.textContent = on ? "Rendering…" : "Export video as MP4"; }
+  if (u.stop) u.stop.hidden = !on;
+  if (u.prog){
+    clearTimeout(JOB.hideTimer);
+    if (on) u.prog.classList.add("on");
+    else JOB.hideTimer = setTimeout(() => { if (!JOB.busy) u.prog.classList.remove("on"); }, 4000);
+  }
+}
+/* Stop is deliberately blunt: drop the encoder, kill the ffmpeg worker, and let the
+   render loop notice the flag on its next frame. The project itself is untouched. */
+function stopRender(){
+  if (!JOB.busy || JOB.cancel) return;
+  JOB.cancel = true;
+  renderStatus("Stopping…");
+  try { if (JOB.encoder && JOB.encoder.state !== "closed") JOB.encoder.close(); } catch(e){}
+  try { if (JOB.ffmpeg) JOB.ffmpeg.terminate(); } catch(e){}
+  JOB.ffmpeg = null;
+}
+
+/* ---------- render range ---------- */
+function rangeModeValue(){ const el = $("#rngMode"); return el ? el.value : "all"; }
+function exportRange(){
+  const dur = duration || 0;
+  const mode = rangeModeValue();
+  let a = 0, b = dur;
+  if (mode === "range"){
+    const ia = parseTimeStr($("#rngIn") ? $("#rngIn").value : "");
+    const ib = parseTimeStr($("#rngOut") ? $("#rngOut").value : "");
+    if (isFinite(ia)) a = ia;
+    if (isFinite(ib) && ib > 0) b = ib;
+  } else if (mode === "caption"){
+    const i = findCapAt(video.currentTime);
+    const c = state.captions[i >= 0 ? i : 0];
+    if (c){ a = Math.max(0, c.start - 0.15); b = c.end + 0.15; }
+  }
+  a = clamp(a, 0, Math.max(0, dur));
+  if (dur) b = clamp(b, 0, dur);
+  if (!(b > a)) b = Math.min(dur || (a + 1), a + 0.5);
+  return { start: a, end: b, dur: b - a, partial: mode !== "all" && (b - a) < dur - 0.02 };
+}
+function syncRangeUI(){
+  const sel = $("#rngMode"); if (!sel) return;
+  const row = $("#rngRow"); if (row) row.hidden = sel.value !== "range";
+  const r = exportRange();
+  const lbl = $("#rngInfo");
+  if (lbl){
+    lbl.textContent = !duration ? "Load a video to set a range."
+      : r.partial ? "Rendering " + fmtClock(r.start) + " → " + fmtClock(r.end) + "  (" + fmtClock(r.dur) + " of " + fmtClock(duration) + ")"
+      : "Rendering the whole clip — " + fmtClock(duration);
+  }
+  renderRangeMarks(r);
+}
+function renderRangeMarks(r){
+  const tl = $("#timeline"); if (!tl) return;
+  let band = tl.querySelector(".tl-range");
+  if (!duration || !r.partial){ if (band) band.remove(); return; }
+  if (!band){ band = document.createElement("div"); band.className = "tl-range"; tl.appendChild(band); }
+  band.style.left  = (r.start / duration * 100) + "%";
+  band.style.width = Math.max(0.3, r.dur / duration * 100) + "%";
+}
+function setRangeFromPlayhead(which){
+  const sel = $("#rngMode");
+  if (sel && sel.value !== "range") sel.value = "range";
+  const t = video ? video.currentTime : 0;
+  const inEl = $("#rngIn"), outEl = $("#rngOut");
+  if (inEl && !inEl.value) inEl.value = "0:00.00";
+  if (outEl && !outEl.value) outEl.value = fmtClock(duration || t);
+  if (which === "in" && inEl) inEl.value = fmtClock(t);
+  if (which === "out" && outEl) outEl.value = fmtClock(t);
+  syncRangeUI();
+}
+
+/* ---------- output settings ---------- */
+function exportSettings(){
+  const stage = getStageDims();
+  const longest = Math.max(stage.w, stage.h) || 1920;
+  const resSel = $("#expRes") ? $("#expRes").value : "1280";
+  const cap = resSel === "src" ? longest : (parseInt(resSel, 10) || 1280);
+  const s = Math.min(1, cap / longest);
+  // H.264 wants even dimensions, and so do most hardware encoders.
+  const w = Math.max(2, Math.round(stage.w * s / 2) * 2);
+  const h = Math.max(2, Math.round(stage.h * s / 2) * 2);
+  const fps = clamp(parseInt($("#expFps") ? $("#expFps").value : "30", 10) || 30, 5, 60);
+  const qual = $("#expQual") ? $("#expQual").value : "balanced";
+  const bpp = qual === "high" ? 0.16 : qual === "small" ? 0.05 : 0.09;
+  const bitrate = Math.round(clamp(w * h * fps * bpp, 800000, 40000000));
+  // How the decoded pictures are collected: a playback pass at 1x / 2x / 4x, or an
+  // exact seek for every single frame.
+  const capture = $("#expCapture") ? $("#expCapture").value : "2";
+  const exact = capture === "exact";
+  const rate = exact ? 1 : clamp(parseFloat(capture) || 2, 0.25, 8);
+  return { w, h, fps, bitrate, scale: w / (stage.w || w), stage, qual, rate, exact };
+}
+
+/* ---------- ffmpeg ---------- */
+async function loadFFmpeg(onLog){
+  if (JOB.ffmpeg) return JOB.ffmpeg;
+  renderStatus("Loading the MP4 encoder…");
   const { FFmpeg } = await import(FFMPEG_VENDOR + "ffmpeg/index.js");
   const ffmpeg = new FFmpeg();
+  if (onLog) ffmpeg.on("log", onLog);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 90000);
+  try {
+    await ffmpeg.load({
+      coreURL: FFMPEG_VENDOR + "core/ffmpeg-core.js",
+      wasmURL: FFMPEG_VENDOR + "core/ffmpeg-core.wasm"
+    }, { signal: ctl.signal });
+  } catch (e){
+    try { ffmpeg.terminate(); } catch(_){}
+    throw new Error("The MP4 encoder could not be loaded (" +
+      (ctl.signal.aborted ? "timed out" : (e && e.message || e)) +
+      "). Check that the /vendor/ffmpeg folder is deployed.");
+  } finally { clearTimeout(timer); }
+  JOB.ffmpeg = ffmpeg;
+  return ffmpeg;
+}
+function sourceExt(){
+  const n = (state.videoFile && state.videoFile.name) || "";
+  const m = /\.([a-z0-9]{2,5})$/i.exec(n);
+  if (m) return "." + m[1].toLowerCase();
+  return state.mode === "audio" ? ".mp3" : ".mp4";
+}
+/* Last step of both offline engines: wrap the finished video stream in an MP4 and
+   copy the matching slice of the source audio in beside it. */
+async function packageMP4(ffmpeg, inputArgs, range){
+  renderStatus("Packaging MP4…", 92);
+  const withAudio = !!state.videoFile;
+  let srcName = null;
+  if (withAudio){
+    srcName = "wb-source" + sourceExt();
+    await ffmpeg.writeFile(srcName, new Uint8Array(await state.videoFile.arrayBuffer()));
+  }
+  const run = async useAudio => {
+    const args = inputArgs.slice();
+    if (useAudio){
+      args.push("-ss", range.start.toFixed(3), "-t", range.dur.toFixed(3), "-i", srcName,
+                "-map", "0:v:0", "-map", "1:a:0?", "-c:v", "copy",
+                "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-shortest");
+    } else {
+      args.push("-map", "0:v:0", "-c:v", "copy");
+    }
+    args.push("-movflags", "+faststart", "-y", "wb-out.mp4");
+    return ffmpeg.exec(args, Math.max(180000, range.dur * 4000));
+  };
+  let code = await run(withAudio);
+  if (code !== 0 && withAudio){
+    // A source whose audio ffmpeg cannot decode should not cost you the whole render.
+    renderStatus("Audio could not be copied — saving the video without sound…", 95);
+    code = await run(false);
+  }
+  if (code !== 0) throw new Error("MP4 packaging failed (code " + code + ").");
+  const data = await ffmpeg.readFile("wb-out.mp4");
+  return new Blob([data], { type: "video/mp4" });
+}
+
+/* ---------- shared offline plumbing ----------
+   Both offline engines walk the same ladder of output frames. What differs is only
+   where a finished frame goes: the browser's H.264 encoder, or a JPEG handed to
+   ffmpeg. The expensive part is getting the decoded picture for each timestamp.
+
+   Seeking the <video> element to every frame costs well over 100 ms per seek, which
+   is far slower than simply playing the clip. So the default source is a pump: play
+   the clip once (optionally at 2x or 4x), snapshot each decoded picture as it is
+   presented, and map it onto the output frames it covers. The captions are still
+   drawn fresh for every output frame, so caption animation stays smooth at the full
+   frame rate even when the decoder cannot keep up with a 4x pass.
+
+   If the pump stalls, or you ask for an exact render, the seek path finishes the job. */
+function seekVideo(t){
+  return new Promise(resolve => {
+    if (state.mode === "audio" || !video.videoWidth){ resolve(); return; }
+    if (Math.abs(video.currentTime - t) < 0.0005){ resolve(); return; }
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      video.removeEventListener("seeked", finish);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, 3000);
+    video.addEventListener("seeked", finish);
+    try { video.currentTime = t; } catch(e){ finish(); }
+  });
+}
+function frameProgress(i, total, t0, fps, hi, how){
+  const done = (i + 1) / total;
+  const elapsed = (performance.now() - t0) / 1000;
+  const eta = done > 0.03 ? Math.max(0, elapsed / done - elapsed) : NaN;
+  const speed = elapsed > 0.5 ? ((i + 1) / fps / elapsed) : 0;
+  renderStatus("Rendering " + (i + 1) + " / " + total + " frames · " + Math.round(done * 100) + "%" +
+    (isFinite(eta) ? " · " + fmtClock(eta) + " left" : "") +
+    (speed ? " · " + speed.toFixed(1) + "× real time" : "") + (how ? " · " + how : ""), 4 + done * (hi - 4));
+}
+/* Plays the clip and feeds decoded pictures to `emit`, which is async (it encodes).
+   A small pool of snapshot canvases decouples decoding from encoding: when the pool
+   runs dry the clip is paused until the encoder catches up, so a slow encoder can
+   never put the picture out of step with the captions. Returns the next frame index
+   still to render, so the seek path can finish anything the pump could not. */
+async function pumpPictures(range, opts, from, total, emit){
+  const [dw, dh] = fitContain(VW, VH, opts.stage.w, opts.stage.h);
+  const sw = Math.max(1, Math.round(dw * opts.scale));
+  const sh = Math.max(1, Math.round(dh * opts.scale));
+  const pool = [];
+  for (let k = 0; k < 6; k++){
+    const c = document.createElement("canvas");
+    c.width = sw; c.height = sh;
+    pool.push({ c, cx: c.getContext("2d", { alpha: false }), busy: false });
+  }
+  const freeCount = () => { let n = 0; for (const p of pool) if (!p.busy) n++; return n; };
+  const freeSlot  = () => pool.find(p => !p.busy);
+
+  /* Backpressure: when the encoder falls behind, slow the clip down rather than pausing
+     it. Pausing and resuming a clip that is playing at 4x can leave the decoder sitting
+     idle for seconds, which is what made the fast passes slower than the slow ones; a
+     playback-rate change is smooth and the decoder never stops. */
+  const FAST = opts.rate, SLOW = Math.max(0.25, Math.min(1, opts.rate / 8));
+  let throttled = false;
+  const setRate = r => { try { if (video.playbackRate !== r) video.playbackRate = r; } catch(e){} };
+
+  const queue = [];
+  let producerDone = false, waiter = null, grabbed = 0, seenPics = 0;
+  let newest = -Infinity;        // media time of the most recent decoded picture
+  const wake = () => { const w = waiter; waiter = null; if (w) w(); };
+  const onPicture = (now, md) => {
+    if (JOB.cancel){ producerDone = true; wake(); return; }
+    const mt = md && Number.isFinite(md.mediaTime) ? md.mediaTime : video.currentTime;
+    seenPics++;
+    if (mt > newest) newest = mt;   // the clock advances even for a picture we cannot store
+    const slot = freeSlot();
+    if (slot){
+      slot.busy = true;
+      try { slot.cx.drawImage(video, 0, 0, sw, sh); } catch(e){}
+      queue.push({ t: mt, slot });
+      grabbed++;
+    }
+    if (mt >= range.end - 0.001 || video.ended){ producerDone = true; wake(); return; }
+    if (freeCount() <= 1 && !throttled){ throttled = true; setRate(SLOW); }
+    video.requestVideoFrameCallback(onPicture);
+    wake();
+  };
+  const onEnded = () => { producerDone = true; wake(); };
+  video.addEventListener("ended", onEnded);
+
+  let held = null;                      // newest picture we are allowed to reuse
+  const adopt = slot => { if (held && held !== slot) held.busy = false; held = slot; };
+  const relax = () => {
+    if (throttled && freeCount() >= 3){ throttled = false; setRate(FAST); }
+    if (video.paused){ const p = video.play(); if (p && p.catch) p.catch(() => {}); }
+  };
+  let i = from;
+  video.muted = true;
+  setRate(FAST);
+  await seekVideo(range.start);
+  video.requestVideoFrameCallback(onPicture);
+  try { await video.play(); } catch(e){ /* autoplay refused -- the seek path takes over */ }
+
+  try {
+    while (i < total){
+      throwIfCancelled();
+      const want = range.start + i / opts.fps;
+      // Wait only until the decoder has presented a picture at or past this timestamp.
+      // `newest` is tracked separately from the queue: the queue drains as pictures are
+      // adopted, so waiting for it to refill would stall on every frame the decoder
+      // skipped during a 2x / 4x pass -- which is most of them.
+      let spins = 0, seen = -1;
+      while (!producerDone && newest < want){
+        while (queue.length > 1) adopt(queue.shift().slot);   // never let the pool starve
+        relax();
+        await new Promise(r => { waiter = r; setTimeout(r, 60); });
+        throwIfCancelled();
+        if (seenPics !== seen){ seen = seenPics; spins = 0; }
+        else if (++spins > 40) return i;                      // stalled: hand over to seeking
+      }
+      while (queue.length && queue[0].t <= want + 1e-6) adopt(queue.shift().slot);
+      if (!held && queue.length) adopt(queue.shift().slot);    // first picture arrived a touch late
+      if (!held && producerDone) return i;
+      await emit(i, want, held ? held.c : null);
+      i++;
+      relax();
+    }
+  } finally {
+    producerDone = true;
+    video.removeEventListener("ended", onEnded);
+    setRate(1);
+    try { video.pause(); } catch(e){}
+    pool.forEach(p => p.busy = false);
+  }
+  return i;
+}
+/* Renders [range] into `sink`, frame by frame, as fast as the machine allows. */
+async function renderOffline(range, opts, sink){
+  const total = Math.max(1, Math.round(range.dur * opts.fps));
+  const hasPicture = state.mode !== "audio" && !!video.videoWidth;
+  const mediaEnd = video.duration || range.end;
+  const t0 = performance.now();
+  let how = "";
+  const emit = async (i, t, srcImg) => {
+    sink.draw(t, srcImg);
+    await sink.push(i);
+    if ((i % 4) === 0 || i === total - 1){
+      frameProgress(i, total, t0, opts.fps, sink.hi, how);
+      await nextTick();            // let the UI paint and the Stop button get its click in
+    }
+  };
+  let i = 0;
+  const canPump = hasPicture && !opts.exact && typeof video.requestVideoFrameCallback === "function";
+  if (canPump){
+    how = opts.rate > 1 ? "playing at " + opts.rate + "×" : "playback pass";
+    i = await pumpPictures(range, opts, 0, total, emit);
+    if (i < total) how = "frame by frame";
+  } else if (hasPicture){
+    how = "frame by frame";
+  }
+  for (; i < total; i++){
+    throwIfCancelled();
+    const t = range.start + i / opts.fps;
+    if (hasPicture) await seekVideo(Math.min(t, Math.max(0, mediaEnd - 0.001)));
+    await emit(i, t, null);
+  }
+  return sink.finish(range);
+}
+
+/* ---------- engine 1: turbo — the browser's own H.264 encoder (WebCodecs) ---------- */
+async function pickAvcConfig(w, h, fps, bitrate){
+  if (typeof VideoEncoder === "undefined" || !VideoEncoder.isConfigSupported) return null;
+  // High 5.2 first, then progressively plainer profiles, so both a 4K vertical frame
+  // and a 720p one find something this machine can actually encode.
+  const codecs = ["avc1.640034", "avc1.64002A", "avc1.4D402A", "avc1.42E02A",
+                  "avc1.640028", "avc1.4D401F", "avc1.42E01F"];
+  for (const codec of codecs){
+    const cfg = { codec, width: w, height: h, framerate: fps, bitrate,
+                  avc: { format: "annexb" }, latencyMode: "quality" };
+    try {
+      const sup = await VideoEncoder.isConfigSupported(cfg);
+      if (sup && sup.supported) return cfg;
+    } catch(e){}
+  }
+  return null;
+}
+async function makeTurboSink(opts){
+  if (typeof VideoFrame === "undefined") return null;
+  const cfg = await pickAvcConfig(opts.w, opts.h, opts.fps, opts.bitrate);
+  if (!cfg) return null;                       // no H.264 encoder here — try the next engine
+  const cvs = document.createElement("canvas");
+  cvs.width = opts.w; cvs.height = opts.h;
+  const cx = cvs.getContext("2d", { alpha: false });
+  if (!cx) return null;
+
+  const parts = [];
+  let bytes = 0, encErr = null;
+  const encoder = new VideoEncoder({
+    output: chunk => {
+      const b = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(b);
+      parts.push(b); bytes += b.length;
+    },
+    error: e => { encErr = e; }
+  });
+  JOB.encoder = encoder;
+  encoder.configure(cfg);
+  const gop = Math.max(1, Math.round(opts.fps * 2));
+  return {
+    hi: 88,
+    draw(t, srcImg){ paintStage(cx, opts.stage.w, opts.stage.h, opts.scale, t, srcImg); },
+    async push(i){
+      if (encErr) throw encErr;
+      const frame = new VideoFrame(cvs, {
+        timestamp: Math.round(i * 1e6 / opts.fps),
+        duration: Math.round(1e6 / opts.fps)
+      });
+      encoder.encode(frame, { keyFrame: (i % gop) === 0 });
+      frame.close();
+      while (encoder.encodeQueueSize > 12 && !JOB.cancel) await nextTick();
+    },
+    async finish(range){
+      throwIfCancelled();
+      renderStatus("Finishing the video stream…", 90);
+      await encoder.flush();
+      try { encoder.close(); } catch(e){}
+      JOB.encoder = null;
+      if (encErr) throw encErr;
+      if (!bytes) throw new Error("The encoder produced no video data.");
+      const h264 = new Uint8Array(bytes);
+      let off = 0;
+      for (const p of parts){ h264.set(p, off); off += p.length; }
+      parts.length = 0;
+      const ffmpeg = await loadFFmpeg();
+      await ffmpeg.writeFile("wb-video.h264", h264);
+      // The stream is already H.264, so ffmpeg only copies it into an MP4 container.
+      return packageMP4(ffmpeg, ["-r", String(opts.fps), "-f", "h264", "-i", "wb-video.h264"], range);
+    }
+  };
+}
+
+/* ---------- engine 2: frames — same offline render, encoded by ffmpeg's x264 ----------
+   Encoding happens in batches so a long clip never holds thousands of stills at once. */
+function canvasToJpeg(cvs, q){
+  return new Promise((resolve, reject) => {
+    cvs.toBlob(b => b ? resolve(b) : reject(new Error("Could not read a frame off the canvas.")),
+               "image/jpeg", q);
+  });
+}
+async function makeFrameSink(opts){
+  const ffmpeg = await loadFFmpeg();
+  const cvs = document.createElement("canvas");
+  cvs.width = opts.w; cvs.height = opts.h;
+  const cx = cvs.getContext("2d", { alpha: false });
+  const crf = opts.qual === "high" ? "19" : opts.qual === "small" ? "27" : "23";
+  const jpegQ = opts.qual === "small" ? 0.86 : 0.94;
+  const BATCH = 240;
+  const name = k => "f" + String(k).padStart(6, "0") + ".jpg";
+  const parts = [];
+  let inBatch = 0;
+  const flush = async () => {
+    if (!inBatch) return;
+    throwIfCancelled();
+    renderStatus("Encoding " + inBatch + " rendered frames…");
+    const part = "wb-part" + parts.length + ".mp4";
+    const code = await ffmpeg.exec(["-framerate", String(opts.fps), "-i", "f%06d.jpg",
+      "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", crf,
+      "-pix_fmt", "yuv420p", "-y", part], Math.max(120000, inBatch * 2000));
+    if (code !== 0) throw new Error("Frame encoding failed (code " + code + ").");
+    parts.push(part);
+    for (let k = 0; k < inBatch; k++){ try { await ffmpeg.deleteFile(name(k)); } catch(e){} }
+    inBatch = 0;
+  };
+  return {
+    hi: 80,
+    draw(t, srcImg){ paintStage(cx, opts.stage.w, opts.stage.h, opts.scale, t, srcImg); },
+    async push(){
+      const blob = await canvasToJpeg(cvs, jpegQ);
+      await ffmpeg.writeFile(name(inBatch), new Uint8Array(await blob.arrayBuffer()));
+      inBatch++;
+      if (inBatch >= BATCH) await flush();
+    },
+    async finish(range){
+      await flush();
+      throwIfCancelled();
+      if (!parts.length) throw new Error("No frames were rendered.");
+      let videoOnly = parts[0];
+      if (parts.length > 1){
+        renderStatus("Joining the rendered parts…", 88);
+        const list = parts.map(p => "file '" + p + "'").join("\n") + "\n";
+        await ffmpeg.writeFile("wb-list.txt", new TextEncoder().encode(list));
+        const code = await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "wb-list.txt",
+                                        "-c", "copy", "-y", "wb-joined.mp4"], 300000);
+        if (code !== 0) throw new Error("Could not join the rendered parts (code " + code + ").");
+        videoOnly = "wb-joined.mp4";
+      }
+      return packageMP4(ffmpeg, ["-i", videoOnly], range);
+    }
+  };
+}
+
+/* ---------- engine 3: classic (real-time capture + transcode) ---------- */
+async function transcodeWebMToMP4(webmBlob, onStatus, durationSec){
   let lastPct = -1;
   const report = frac => {
     if (!Number.isFinite(frac)) return;
@@ -2831,127 +3374,203 @@ async function transcodeWebMToMP4(webmBlob, onStatus, durationSec){
     lastPct = pct;
     onStatus("Converting to MP4… " + pct + "%", pct);
   };
-  // MediaRecorder WebM files have no duration, so ffmpeg's own progress value is unreliable.
-  // Parse "time=00:00:12.34" from the log and divide by the known recording length instead.
-  ffmpeg.on("log", ({ message }) => {
+  // MediaRecorder WebM files carry no duration, so ffmpeg's own progress value is
+  // unreliable. Parse "time=00:00:12.34" from the log and divide by the known length.
+  const ffmpeg = await loadFFmpeg(({ message }) => {
     const m = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(message);
     if (m && durationSec > 0) report((+m[1] * 3600 + +m[2] * 60 + +m[3]) / durationSec);
   });
   ffmpeg.on("progress", ({ progress }) => {
     if (!(durationSec > 0) && Number.isFinite(progress) && progress >= 0 && progress <= 1) report(progress);
   });
-
-  const loadCtl = new AbortController();
-  const loadTimer = setTimeout(() => loadCtl.abort(), 90000);
-  try {
-    await ffmpeg.load({
-      coreURL: FFMPEG_VENDOR + "core/ffmpeg-core.js",
-      wasmURL: FFMPEG_VENDOR + "core/ffmpeg-core.wasm"
-    }, { signal: loadCtl.signal });
-  } catch (e) {
-    try { ffmpeg.terminate(); } catch(_){}
-    throw new Error("The MP4 encoder could not be loaded (" + (loadCtl.signal.aborted ? "timed out" : (e && e.message || e)) + "). Check that the /vendor/ffmpeg folder is deployed.");
-  } finally { clearTimeout(loadTimer); }
-
   const input = "wordbox-input.webm", output = "wordbox-captions.mp4";
+  await ffmpeg.writeFile(input, new Uint8Array(await webmBlob.arrayBuffer()));
+  throwIfCancelled();
+  onStatus("Encoding MP4… keep this tab open.", 0);
+  const timeoutMs = Math.max(10 * 60 * 1000, (durationSec || 60) * 30 * 1000);
+  const code = await ffmpeg.exec(["-i", input, "-c:v", "libx264", "-preset", "ultrafast",
+    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", output], timeoutMs);
+  if (code !== 0) throw new Error("MP4 encoding did not finish (code " + code + "). Try a shorter clip.");
+  const data = await ffmpeg.readFile(output);
+  return new Blob([data], { type: "video/mp4" });
+}
+function recordRange(range, opts){
+  return new Promise((resolve, reject) => {
+    if (typeof MediaRecorder === "undefined"){ reject(new Error("This browser cannot record video.")); return; }
+    const mimes = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm;codecs=vp9", "video/webm"];
+    let mime = ""; for (const m of mimes) if (MediaRecorder.isTypeSupported(m)){ mime = m; break; }
+    if (!mime){ reject(new Error("This browser cannot record a compatible format.")); return; }
+
+    const cvs = document.createElement("canvas");
+    cvs.width = opts.w; cvs.height = opts.h;
+    const cx = cvs.getContext("2d");
+    const stream = cvs.captureStream(opts.fps);
+    let gotAudio = false;
+    try {
+      const vs = video.captureStream ? video.captureStream()
+               : (video.mozCaptureStream ? video.mozCaptureStream() : null);
+      if (vs) vs.getAudioTracks().forEach(t => { stream.addTrack(t); gotAudio = true; });
+    } catch(e){}
+
+    let rec;
+    try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: opts.bitrate }); }
+    catch(e){ reject(new Error("Could not start recording: " + e.message)); return; }
+
+    const chunks = [];
+    let raf = 0, finished = false;
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const cleanup = () => {
+      cancelAnimationFrame(raf);
+      try { stream.getTracks().forEach(t => t.stop()); } catch(e){}
+    };
+    const stop = () => { try { if (rec.state !== "inactive") rec.stop(); } catch(e){} };
+    rec.onerror = e => {
+      if (finished) return;
+      finished = true; cleanup();
+      reject(e.error || new Error("Recording failed"));
+    };
+    rec.onstop = () => {
+      if (finished) return;
+      finished = true; cleanup();
+      video.pause();
+      if (JOB.cancel){ reject(abortError()); return; }
+      const blob = new Blob(chunks, { type: mime });
+      if (!blob.size){ reject(new Error("The browser produced an empty recording. Try Chrome or Edge and keep this tab in the foreground.")); return; }
+      resolve(blob);
+    };
+
+    const draw = () => {
+      if (rec.state !== "recording") return;
+      if (JOB.cancel){ stop(); return; }
+      paintStage(cx, opts.stage.w, opts.stage.h, opts.scale, video.currentTime);
+      const done = clamp((video.currentTime - range.start) / range.dur, 0, 1);
+      renderStatus("Recording in real time… " + fmtClock(Math.max(0, video.currentTime - range.start)) +
+        " / " + fmtClock(range.dur) + (gotAudio ? "" : " (no source audio)") +
+        " — keep this tab in the foreground", done * 48);
+      if (video.currentTime >= range.end - 0.001 || video.ended){ stop(); return; }
+      raf = requestAnimationFrame(draw);
+    };
+    const begin = () => {
+      if (JOB.cancel){ cleanup(); reject(abortError()); return; }
+      rec.start(200);
+      const p = video.play();
+      if (p && p.catch) p.catch(err => { stop(); reject(new Error("Playback failed: " + err.message)); });
+      raf = requestAnimationFrame(draw);
+      video.addEventListener("ended", stop, { once: true });
+    };
+
+    if (Math.abs(video.currentTime - range.start) < 0.01 && video.readyState >= 2) begin();
+    else {
+      const h = () => { video.removeEventListener("seeked", h); begin(); };
+      video.addEventListener("seeked", h, { once: true });
+      try { video.currentTime = range.start; } catch(e){ begin(); }
+    }
+  });
+}
+async function renderClassic(range, opts){
+  renderStatus("Preparing the recorder…", 1);
+  const webm = await recordRange(range, opts);
+  throwIfCancelled();
+  renderStatus("Converting to MP4…", 50);
   try {
-    await ffmpeg.writeFile(input, new Uint8Array(await webmBlob.arrayBuffer()));
-    onStatus("Encoding MP4… keep this tab open.", 0);
-    const timeoutMs = Math.max(10 * 60 * 1000, (durationSec || 60) * 30 * 1000);
-    const code = await ffmpeg.exec(["-i", input, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-      "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", output], timeoutMs);
-    if (code !== 0) throw new Error("MP4 encoding did not finish (code " + code + "). Try a shorter clip.");
-    const data = await ffmpeg.readFile(output);
-    return new Blob([data], { type: "video/mp4" });
-  } finally {
-    try { ffmpeg.terminate(); } catch(_){}
+    return await transcodeWebMToMP4(webm, (message, pct) => {
+      renderStatus(message, 50 + (Number.isFinite(pct) ? pct * 0.5 : 0));
+    }, range.dur);
+  } catch (err){
+    if (err && err.aborted) throw err;
+    // Don't lose the take if only the conversion failed.
+    download(webm, "wordbox-captions.webm");
+    renderStatus("MP4 conversion failed — saved the recording as WebM instead.", 100);
+    throw new Error((err && err.message ? err.message : String(err)) +
+      "\n\nYour captioned video was saved as a .webm file instead.");
   }
 }
 
-function exportVideo(){
+/* ---------- entry point ---------- */
+function exportFileName(range){
+  const f = state.videoFile;
+  const base = (f && f.name ? f.name.replace(/\.[^.]+$/, "") : "wordbox")
+    .replace(/[\\/:*?"<>|]+/g, "_").slice(0, 50);
+  const part = range.partial
+    ? "-" + fmtClock(range.start).replace(/[:.]/g, "") + "-" + fmtClock(range.end).replace(/[:.]/g, "")
+    : "";
+  return base + "-captions" + part + ".mp4";
+}
+async function exportVideo(){
+  if (JOB.busy) return;
   if (!state.videoFile){ alert("Load a file first."); return; }
-  if (typeof MediaRecorder === "undefined"){ alert("Your browser does not support video recording."); return; }
-  const btn = $("#btnExportVideo"), prog = $("#recProgress"), bar = prog.querySelector("i"), info = $("#recInfo");
-  const mimes = ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm;codecs=vp9","video/webm"];
-  let mime = ""; for (const m of mimes) if (MediaRecorder.isTypeSupported(m)){ mime = m; break; }
-  if (!mime){ alert("Your browser cannot record a compatible source format."); return; }
-  btn.disabled = true; prog.classList.add("on"); bar.style.width = "0%"; info.textContent = "Preparing video…";
-  const stage = getStageDims();
-  const exScale = Math.min(1, EXPORT_MAX_SIDE / Math.max(stage.w, stage.h));
-  const cvs = document.createElement("canvas");
-  cvs.width = Math.max(2, Math.round(stage.w * exScale));
-  cvs.height = Math.max(2, Math.round(stage.h * exScale));
-  const cx = cvs.getContext("2d");
-  const stream = cvs.captureStream(30);
-  let gotAudio = false;
-  try {
-    const vs = video.captureStream ? video.captureStream() : (video.mozCaptureStream ? video.mozCaptureStream() : null);
-    if (vs) vs.getAudioTracks().forEach(t => { stream.addTrack(t); gotAudio = true; });
-  } catch(e){}
-  let rec;
-  try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }); }
-  catch(e){ btn.disabled = false; prog.classList.remove("on"); alert("Could not start video recording: " + e.message); return; }
-  const chunks = [];
-  let webm = null;
-  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-  const stopped = new Promise((resolve, reject) => { rec.onstop = resolve; rec.onerror = e => reject(e.error || new Error("Recording failed")); });
-  const prevTime = video.currentTime, prevVol = video.volume;
-  let raf = 0, endHandler;
+  if (!duration){ alert("The media has no duration yet — give it a moment and try again."); return; }
+
+  const range = exportRange();
+  const opts = exportSettings();
+  const engine = $("#expEngine") ? $("#expEngine").value : "auto";
+
+  JOB.cancel = false;
+  setRenderBusy(true);
+  const prevTime = video.currentTime, prevRate = video.playbackRate;
+  const prevVol = video.volume, prevMuted = video.muted;   // the pump mutes the clip
   video.pause();
-  const restore = () => {
-    cancelAnimationFrame(raf);
-    try { stream.getTracks().forEach(t => t.stop()); } catch(e){}
-    video.volume = prevVol; video.currentTime = prevTime; btn.disabled = false;
-  };
-  function begin(){
-    rec.start(200);
-    const playPromise = video.play();
-    if (playPromise && playPromise.catch) playPromise.catch(err => { try { rec.stop(); } catch(e){}; info.textContent = "Playback failed: " + err.message; });
-    function draw(){
-      if (rec.state !== "recording") return;
-      paintStage(cx, stage.w, stage.h, exScale);
-      if (duration) bar.style.width = ((video.currentTime / duration) * 100 * .45).toFixed(1) + "%";
-      info.textContent = "Recording… " + fmtClock(video.currentTime) + " / " + fmtClock(duration) + (gotAudio ? "" : " (source audio unavailable)") + " — keep this tab in the foreground";
-      raf = requestAnimationFrame(draw);
+
+  try {
+    renderStatus("Preparing " + opts.w + "×" + opts.h + " at " + opts.fps + " fps…", 1);
+    let blob = null;
+    if (engine === "auto" || engine === "turbo"){
+      try {
+        const sink = await makeTurboSink(opts);
+        if (sink) blob = await renderOffline(range, opts, sink);
+        else if (engine === "turbo")
+          throw new Error("This browser has no WebCodecs H.264 encoder. Pick another engine.");
+      } catch (err){
+        if (err && err.aborted) throw err;
+        if (JOB.cancel) throw abortError();
+        if (engine === "turbo") throw err;
+        console.warn("Turbo render unavailable, trying the frame renderer:", err);
+        blob = null;
+      }
     }
-    raf = requestAnimationFrame(draw);
-    endHandler = () => { video.removeEventListener("ended", endHandler); setTimeout(() => { try { if (rec.state !== "inactive") rec.stop(); } catch(e){} }, 250); };
-    video.addEventListener("ended", endHandler, { once: true });
-  }
-  const seeked = new Promise(resolve => {
-    if (video.currentTime === 0 && video.readyState >= 2){ resolve(); return; }
-    const h = () => { video.removeEventListener("seeked", h); resolve(); };
-    video.addEventListener("seeked", h, { once: true });
-  });
-  video.currentTime = 0;
-  seeked.then(begin).then(() => stopped).then(async () => {
-    cancelAnimationFrame(raf);
-    webm = new Blob(chunks, { type: mime });
-    if (!webm.size) throw new Error("The browser produced an empty recording. Try Chrome or Edge and keep this tab in the foreground.");
-    bar.style.width = "48%";
-    const mp4 = await transcodeWebMToMP4(webm, (message, pct) => {
-      info.textContent = message;
-      if (Number.isFinite(pct)) bar.style.width = (48 + pct * 0.5).toFixed(1) + "%";
-    }, duration);
-    download(mp4, "wordbox-captions.mp4");
-    bar.style.width = "100%";
-    info.textContent = "Done — MP4 saved (" + (mp4.size/1048576).toFixed(1) + " MB).";
-    restore();
-    setTimeout(() => prog.classList.remove("on"), 2600);
-  }).catch(err => {
-    console.error(err);
-    restore();
-    const msg = err && err.message ? err.message : String(err);
-    if (webm && webm.size){
-      // Don't lose the recording if only the MP4 conversion failed.
-      download(webm, "wordbox-captions.webm");
-      info.textContent = "MP4 conversion failed — saved the recording as WebM instead.";
-      alert("MP4 export failed: " + msg + "\n\nYour captioned video was saved as a .webm file instead.");
+    if (!blob && (engine === "auto" || engine === "frames")){
+      if (engine === "auto") renderStatus("Using the frame renderer…", 2);
+      try {
+        blob = await renderOffline(range, opts, await makeFrameSink(opts));
+      } catch (err){
+        if (err && err.aborted) throw err;
+        if (JOB.cancel) throw abortError();
+        if (engine === "frames") throw err;
+        console.warn("Frame render failed, falling back to real-time recording:", err);
+        try { if (JOB.ffmpeg) JOB.ffmpeg.terminate(); } catch(e){}
+        JOB.ffmpeg = null;
+        blob = null;
+      }
+    }
+    if (!blob){
+      renderStatus("Falling back to real-time recording…", 2);
+      blob = await renderClassic(range, opts);
+    }
+    throwIfCancelled();
+    download(blob, exportFileName(range));
+    renderStatus("Done — " + exportFileName(range) + " saved (" + (blob.size / 1048576).toFixed(1) + " MB).", 100);
+  } catch (err){
+    if (err && err.aborted){
+      renderStatus("Render stopped. Nothing was saved — edit whatever you like and press Export again.", 0);
     } else {
-      info.textContent = "Export failed: " + msg;
+      console.error(err);
+      const msg = err && err.message ? err.message : String(err);
+      renderStatus("Export failed: " + msg, 0);
       alert("Export failed: " + msg);
     }
-  });
+  } finally {
+    try { if (JOB.encoder && JOB.encoder.state !== "closed") JOB.encoder.close(); } catch(e){}
+    JOB.encoder = null;
+    try { if (JOB.ffmpeg) JOB.ffmpeg.terminate(); } catch(e){}
+    JOB.ffmpeg = null;
+    JOB.cancel = false;
+    setRenderBusy(false);
+    video.playbackRate = prevRate;
+    video.volume = prevVol;
+    video.muted = prevMuted;
+    try { video.currentTime = prevTime; } catch(e){}
+    dirty = true;
+  }
 }
 
 /* =====================================================================
@@ -3791,6 +4410,18 @@ function setupUI(){
   $("#btnExportSrt").addEventListener("click", exportSRT);
   $("#btnExportVtt").addEventListener("click", exportVTT);
   $("#btnExportVideo").addEventListener("click", exportVideo);
+  const stopBtn = $("#btnStopRender");
+  if (stopBtn) stopBtn.addEventListener("click", stopRender);
+  const rngMode = $("#rngMode");
+  if (rngMode) rngMode.addEventListener("change", syncRangeUI);
+  ["rngIn","rngOut"].forEach(id => {
+    const el = $("#" + id);
+    if (el) el.addEventListener("change", syncRangeUI);
+  });
+  const bIn = $("#btnRngIn"), bOut = $("#btnRngOut");
+  if (bIn)  bIn.addEventListener("click", () => setRangeFromPlayhead("in"));
+  if (bOut) bOut.addEventListener("click", () => setRangeFromPlayhead("out"));
+  syncRangeUI();
   $("#btnExportPng").addEventListener("click", exportPNG);
   $("#btnSaveJson").addEventListener("click", saveProject);
   $("#btnLoadJson").addEventListener("click", () => $("#jsonInput").click());

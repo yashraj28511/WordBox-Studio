@@ -525,9 +525,70 @@
         <div class="divider"></div>
         <div class="field">
           <label>Burned-in video</label>
-          <button class="btn primary full" id="btnExportVideo">Export video as MP4</button>
+          <div class="row">
+            <span class="mini" style="width:86px">Render</span>
+            <select id="rngMode" style="flex:1">
+              <option value="all">Whole video</option>
+              <option value="range">In / out points</option>
+              <option value="caption">Caption under the playhead</option>
+            </select>
+          </div>
+          <div class="row" id="rngRow" hidden>
+            <input type="text" id="rngIn" placeholder="0:00.00" style="width:76px">
+            <button class="btn tiny" id="btnRngIn" title="Set the in point to the playhead">⟨ In</button>
+            <input type="text" id="rngOut" placeholder="0:00.00" style="width:76px">
+            <button class="btn tiny" id="btnRngOut" title="Set the out point to the playhead">Out ⟩</button>
+          </div>
+          <div class="mini" id="rngInfo" style="margin:2px 0 6px">Load a video to set a range.</div>
+          <div class="row">
+            <span class="mini" style="width:86px">Resolution</span>
+            <select id="expRes" style="flex:1">
+              <option value="720">720p — fastest</option>
+              <option value="1280" selected>1280 px long edge</option>
+              <option value="1920">1080p / 1920 px</option>
+              <option value="src">Project size (full)</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:86px">Frame rate</span>
+            <select id="expFps" style="flex:1">
+              <option value="24">24 fps</option>
+              <option value="30" selected>30 fps</option>
+              <option value="60">60 fps — smoothest</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:86px">Quality</span>
+            <select id="expQual" style="flex:1">
+              <option value="small">Small file</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="high">High bitrate</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:86px">Capture</span>
+            <select id="expCapture" style="flex:1">
+              <option value="2" selected>Fast — play the clip at 2×</option>
+              <option value="4">Fastest — play at 4× (picture may repeat)</option>
+              <option value="1">Steady — play at 1×</option>
+              <option value="exact">Exact — seek every frame (slowest)</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="mini" style="width:86px">Engine</span>
+            <select id="expEngine" style="flex:1">
+              <option value="auto" selected>Automatic — fastest available</option>
+              <option value="turbo">Turbo only (WebCodecs H.264)</option>
+              <option value="frames">Frame renderer (ffmpeg x264)</option>
+              <option value="classic">Real-time recording (last resort)</option>
+            </select>
+          </div>
+          <div class="row">
+            <button class="btn primary grow" id="btnExportVideo">Export video as MP4</button>
+            <button class="btn ghost" id="btnStopRender" hidden>■ Stop</button>
+          </div>
           <div class="progress" id="recProgress"><i></i></div>
-          <div class="hint" id="recInfo">Renders in real time, then converts to MP4 (H.264/AAC) in your browser. Keep this tab open and in the foreground until it finishes.</div>
+          <div class="hint" id="recInfo">Rendering runs off the clock — the clip is played once (at 2× or 4× if you like) and the audio is copied straight across, so it finishes well ahead of real-time recording. Press <b>Stop</b> whenever you want: nothing is saved, the project is untouched, and you can edit and export again right away. Drop the resolution or frame rate for a quicker pass; pick <b>Exact</b> if a 4× pass repeats too many pictures.</div>
         </div>
         <div class="divider"></div>
         <div class="field">

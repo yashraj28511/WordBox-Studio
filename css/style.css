@@ -156,6 +156,11 @@ input[type=range].scrub::-moz-range-thumb{width:14px;height:14px;border-radius:5
 }
 .tl-block:hover{background:linear-gradient(180deg,#7ba5ff,#5b8cff)}
 .tl-head{position:absolute;top:0;bottom:0;width:2px;background:#ff5c7a;box-shadow:0 0 8px rgba(255,92,122,.8);pointer-events:none}
+/* Render range band: shows the slice that Export will actually write out. */
+.tl-range{position:absolute;top:0;bottom:0;background:rgba(255,212,0,.14);
+  border-left:2px solid #ffd400;border-right:2px solid #ffd400;pointer-events:none;z-index:1}
+/* `hidden` has to beat the display rules on .btn and .row, or a hidden control stays on screen. */
+[hidden]{display:none !important}
 .tl-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:11.5px;color:var(--muted)}
 
 .inspector{
