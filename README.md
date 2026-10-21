@@ -1,33 +1,34 @@
-# Normark — Creator Tools
+# Transcriber (video -> audio in browser -> transcription)
 
-Normark is a simple dark-theme home page that links to two tools:
+When you click **Transcribe**:
+1. The video is converted to small mono audio **in your browser** (ffmpeg.wasm).
+2. The audio is split into ~8-minute chunks (~3 MB each).
+3. Each chunk is sent to `/api/transcribe` (OpenAI Whisper) and the text is joined.
 
-- **Caption Generator** (`caption-generator.html`) — WordBox Studio, including its existing caption editor and hosted Groq transcription function.
-- **AI Content Remover** (`content-remove.html`) — Nullframe interface with a server-side ExifTool endpoint.
+So a 926 MB video no longer hits the 400 MB limit.
 
-## Deploy on Netlify
+## Deploy on Vercel
+1. Unzip, then `npm install`
+2. Push to GitHub and import the repo in Vercel (framework: Vite is auto-detected),
+   or run `npx vercel` in this folder.
+3. Vercel > Project > Settings > Environment Variables: add `OPENAI_API_KEY`.
+4. Redeploy.
 
-1. Upload/deploy the entire `Normark` folder (the folder containing `index.html` and `netlify.toml`).
-2. In Site configuration → Environment variables, add `TRANSCRIPTION_API_KEY` with your Groq API key for Caption Generator transcription.
-3. Redeploy after setting the key. Netlify installs the `exiftool-vendored` dependency from `package.json`.
+## Run locally
+    npm install
+    cp .env.example .env.local   # put your key in it
+    npx vercel dev               # serves the site AND /api/transcribe
+(`npm run dev` alone serves only the page, not the API.)
 
-## Important processing limits
+## Using a different transcription service
+Edit `api/transcribe.js` (the single fetch call). Chunks arrive as raw `audio/mp4` bytes.
 
-The Content Remover now sends the selected file to `/.netlify/functions/nullframe` for server-side metadata cleanup. **This Netlify Function is only suitable for small files (up to 4 MB in this build)** because serverless request-body and execution limits prevent reliable processing of large videos. If you need 100 MB–1 GB videos online, deploy a dedicated backend/worker with streaming uploads and ExifTool/FFmpeg rather than Netlify Functions. The interface cannot bypass the hosting provider's limits.
-
-Server-side processing means the file leaves the visitor's device and is uploaded to the hosting environment for processing. Do not upload confidential media unless you trust the service operator. Metadata cleanup is format-dependent and should not be treated as a guarantee that every possible provenance marker is removed.
-
-## Project layout
-
-- `index.html` — Normark home page
-- `caption-generator.html` — Caption Generator
-- `content-remove.html` — Content Remover UI
-- `netlify/functions/transcribe.mjs` — Groq transcription proxy
-- `netlify/functions/nullframe.mjs` — ExifTool metadata cleanup endpoint
-- `css/`, `js/`, `vendor/` — WordBox Studio assets
+## Files
+- `src/audio-extract.js` - the video -> audio chunks feature
+- `src/main.js` - UI logic and click handler
+- `api/transcribe.js` - serverless proxy (keeps your API key off the browser)
 
 ## Notes
-
-- The caption tool requires a valid `TRANSCRIPTION_API_KEY` environment variable.
-- The caption tool's existing video export/transcription behavior is retained from the supplied WordBox Studio ZIP.
-- For large media processing, the current serverless content-removal endpoint must be replaced with a dedicated backend.
+- Huge files take a few minutes to convert; speed depends on the user's computer.
+- The converter (~30 MB) downloads from unpkg on first use.
+- If a video has no audio track you'll get a clear error.
