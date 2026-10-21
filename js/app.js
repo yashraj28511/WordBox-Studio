@@ -409,21 +409,13 @@ function makeSegment(start, end, words, em, wt, st){
   }
   return { start, end, words, em, wt: realWt };
 }
-/* Word timestamps from Whisper (and hand-edited captions) routinely overlap
-   neighbouring words by a few ms, share a start time, or arrive out of order.
-   Rendered as-is, two word boxes are alive in the same frame and "flash" together.
-   This builds a clean, strictly sequential copy for rendering only; the editable
-   captions (and SRT/VTT/JSON exports) are never modified. */
 const MIN_WORD_DUR = 0.03;
 function sanitizeWt(wt, start, end){
   const n = wt.length;
   const out = new Array(n);
   for (let i = 0; i < n; i++) out[i] = { s: wt[i].s, e: wt[i].e };
-  // 1) starts never go backwards
   for (let i = 1; i < n; i++) if (out[i].s < out[i-1].s) out[i].s = out[i-1].s;
-  // 2) a word ends no later than the next one starts (same number => no overlap, no gap)
   for (let i = 0; i < n - 1; i++) if (out[i].e > out[i+1].s) out[i].e = out[i+1].s;
-  // 3) keep every word visible for at least a few frames; push followers if needed
   let prevE = -Infinity;
   for (let i = 0; i < n; i++){
     const w = out[i];
@@ -431,16 +423,9 @@ function sanitizeWt(wt, start, end){
     if (w.e < w.s + MIN_WORD_DUR) w.e = w.s + MIN_WORD_DUR;
     prevE = w.e;
   }
-  // 4) let the last word finish its out-animation inside the caption window
   if (n && isFinite(end) && out[n-1].e > end && end > out[n-1].s) out[n-1].e = end;
   return out;
 }
-/* When one caption is split into several on-screen chunks (by "words per caption" or by
-   width), the chunks take their times from the words they hold -- so the pauses between
-   them used to leave frames with no caption at all, and the one before the first word or
-   after the last word showed nothing either. Tiling the chunks across the caption's own
-   window fixes that: the caption is on screen for exactly as long as it says it is, and
-   every chunk hands straight over to the next. */
 function tileSegments(subs, cap){
   const n = subs.length;
   if (!n) return subs;
@@ -452,7 +437,6 @@ function tileSegments(subs, cap){
   }
   return subs;
 }
-/* Two captions must never be on screen together (they share one position). */
 function separateSegments(segs){
   const order = segs.slice().sort((a, b) => a.start - b.start);
   for (let i = 0; i < order.length - 1; i++){
@@ -588,7 +572,6 @@ function drawCaptions(ctx, W, H, t, st, segs, scale){
   CUR_SCALE = scale || 1;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.textBaseline = "alphabetic";
-  // Safety net: even if two segments overlap, draw only the most recently started one.
   let active = null;
   for (const seg of segs){
     if (t < seg.start || t >= seg.end) continue;
@@ -599,10 +582,9 @@ function drawCaptions(ctx, W, H, t, st, segs, scale){
 }
 
 /* =====================================================================
-   PRESETS  — original + reference-inspired additions
+   PRESETS
    ===================================================================== */
 const PRESETS = [
-  /* -------- core styles -------- */
   { id:"box", name:"Word Box", prev:'background:#2563eb;color:#fff;border-radius:4px;padding:2px 8px;font-weight:800',
     apply:{ fontFamily:"Inter", fontWeight:800, uppercase:true, textColor:"#ffffff", boxColor:"#2563eb",
             accentColor:"#ffd400", strokeColor:"#000000", strokeWidth:0,
@@ -671,132 +653,92 @@ const PRESETS = [
     apply:{ fontFamily:"Caveat", fontWeight:700, uppercase:false, textColor:"#ffffff", accentColor:"#a3e635",
             boxColor:"#1f2937", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0, padYr:0, animIn:"fade", revealMode:1 } },
-
-  /* ============================================================
-     NEW — reference-inspired styles (from the two images)
-     ============================================================ */
-
-  /* Corner bracket frame (TYPOGRAPHY / TITLES GRAPHICS ANIMATION) */
   { id:"cornerFrame", name:"Corners",
     prev:'color:#fff;font-weight:800;border:2px solid #ffd400;padding:2px 8px',
     apply:{ fontFamily:"Montserrat", fontWeight:800, uppercase:true, textColor:"#ffffff",
             accentColor:"#ffd400", boxColor:"#000000", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.12, padYr:0.06, animIn:"fade", revealMode:0 } },
-
-  /* Vertical bars flanking the line (ISABELLA NELSON) */
   { id:"sideBars", name:"Side Bars",
     prev:'color:#fff;font-weight:800;padding:2px 10px;border-left:4px solid #ef4444;border-right:4px solid #ef4444',
     apply:{ fontFamily:"Inter", fontWeight:800, uppercase:true, textColor:"#ffffff",
             accentColor:"#ef4444", boxColor:"#000000", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.10, padYr:0.05, animIn:"fade", revealMode:1 } },
-
-  /* Slanted parallelogram box (AVA SCOTT / LILY EDWARDS) */
   { id:"slantBox", name:"Slant",
     prev:'background:#dc2626;color:#fff;font-style:italic;font-weight:900;padding:2px 10px',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#dc2626", boxColor:"#dc2626", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.16, padYr:0.08, animIn:"slideL", revealMode:0 } },
-
-  /* Yellow accent strip behind active word (NEVER / LOOK BACK) */
   { id:"accentStrip", name:"Strip",
     prev:'background:#fbbf24;color:#111;font-weight:900;padding:1px 8px',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#fbbf24", boxColor:"#111111", emTextColor:"#111111",
             strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.10, padYr:0.04, animIn:"none", revealMode:2 } },
-
-  /* Hollow / outline text (DO IT) */
   { id:"outlineText", name:"Hollow",
     prev:'color:transparent;-webkit-text-stroke:1.6px #fff;font-weight:900;letter-spacing:2px',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#ffd400", boxColor:"#000000", strokeColor:"#ffffff", strokeWidth:22,
             corner:0, padXr:0, padYr:0, animIn:"fade", revealMode:0 } },
-
-  /* Split-tone: first word one color, rest another (EMILY JOHNSON, LUCAS EVANS) */
   { id:"splitTone", name:"Split Tone",
     prev:'color:#fff;font-weight:900',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#ef4444", boxColor:"#000000", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0, padYr:0, animIn:"none", revealMode:0 } },
-
-  /* Small badge under active word (ANIMATION / TITLES) */
   { id:"badgeBelow", name:"Badge",
     prev:'color:#fff;font-weight:900;border-bottom:3px solid #fbbf24',
     apply:{ fontFamily:"Inter", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#fbbf24", boxColor:"#111111", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.04, padYr:0.02, animIn:"fade", revealMode:0 } },
-
-  /* Slash divider (FOLLOW YOUR / HEART) */
   { id:"slashSplit", name:"Slash",
     prev:'color:#fff;font-weight:900;font-style:italic',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#fbbf24", boxColor:"#000000", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0, padYr:0, animIn:"fade", revealMode:0 } },
-
-  /* Horizontal rule above text (IMAGINATION / rules the world) */
   { id:"horizLine", name:"Rule",
     prev:'color:#fff;font-weight:800;border-top:2px solid #fff;padding-top:3px',
     apply:{ fontFamily:"Inter", fontWeight:800, uppercase:false, textColor:"#ffffff",
             accentColor:"#ffffff", boxColor:"#111111", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.04, padYr:0.03, animIn:"fade", revealMode:0 } },
-
-  /* Double outline box (TITLE / ANIMATION) */
   { id:"doubleFrame", name:"Double",
     prev:'color:#fff;font-weight:900;border:2px solid #fbbf24;outline:2px solid #fbbf24;outline-offset:2px;padding:2px 8px',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#fbbf24", boxColor:"#111111", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.12, padYr:0.06, animIn:"pop", revealMode:0 } },
-
-  /* Thick left accent bar (NEVER STOP / DREAMING) */
   { id:"leftBar", name:"Left Bar",
     prev:'color:#fff;font-weight:900;border-left:6px solid #fbbf24;padding-left:8px',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#fbbf24", boxColor:"#111111", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.04, padYr:0.03, animIn:"slideL", revealMode:0 } },
-
-  /* Colored underline accent (LAURA THOMAS) */
   { id:"underlineAcc", name:"Underline",
     prev:'color:#fff;font-weight:900;border-bottom:4px solid #ef4444;padding-bottom:2px',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#ef4444", boxColor:"#111111", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.04, padYr:0.02, animIn:"slideUp", revealMode:0 } },
-
-  /* Small caps header strip on top (SYSTEMS ANALYST / SCIENTIST) */
   { id:"stripeHeader", name:"Header",
     prev:'color:#fff;font-weight:900;border-top:2px solid #ef4444;padding-top:4px',
     apply:{ fontFamily:"Inter", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#ef4444", boxColor:"#111111", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.06, padYr:0.03, animIn:"fade", revealMode:0 } },
-
-  /* Neon corner brackets (glowing) */
   { id:"neonFrame", name:"Neon Frame",
     prev:'color:#fff;font-weight:900;text-shadow:0 0 6px #fbbf24',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#fbbf24", boxColor:"#111111", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.10, padYr:0.06, animIn:"fade", revealMode:0 } },
-
-  /* Vintage cinema bar (analog / vinyl) */
   { id:"cinemaBar", name:"Cinema",
     prev:'background:#1a1a1a;color:#fbbf24;font-weight:800;letter-spacing:3px;padding:2px 10px',
     apply:{ fontFamily:"Georgia", fontWeight:800, uppercase:true, textColor:"#fbbf24",
             accentColor:"#fbbf24", boxColor:"#1a1a1a", strokeColor:"#000000", strokeWidth:0,
             corner:0, padXr:0.16, padYr:0.08, animIn:"fade", revealMode:0 } },
-
-  /* Big red bar (DAVID WILSON) */
   { id:"redBar", name:"Red Bar",
     prev:'background:#dc2626;color:#fff;font-weight:900;padding:2px 12px',
     apply:{ fontFamily:"Inter", fontWeight:900, uppercase:true, textColor:"#ffffff",
             accentColor:"#ffffff", boxColor:"#dc2626", strokeColor:"#000000", strokeWidth:0,
             corner:2, padXr:0.20, padYr:0.09, animIn:"slideUp", revealMode:0 } },
-
-  /* White bar with red text (JENNIFER HALL) */
   { id:"whiteBar", name:"White Bar",
     prev:'background:#fff;color:#dc2626;font-weight:900;padding:2px 12px',
     apply:{ fontFamily:"Inter", fontWeight:900, uppercase:true, textColor:"#dc2626",
             accentColor:"#dc2626", boxColor:"#ffffff", strokeColor:"#000000", strokeWidth:0,
             corner:2, padXr:0.18, padYr:0.09, animIn:"pop", revealMode:0 } },
-
-  /* Stacked two-color name (ETHAN / PEREZ) */
   { id:"stacked", name:"Stacked",
     prev:'color:#ef4444;font-weight:900',
     apply:{ fontFamily:"Montserrat", fontWeight:900, uppercase:true, textColor:"#ffffff",
@@ -813,7 +755,6 @@ const RENDERERS = {
   typewriter: renderTypewriter, block: renderBlock, tiktok: renderTiktok,
   gradient: renderGradient, cinematic: renderCinematic, rebel: renderRebel,
   y2k: renderY2k, chalk: renderChalk,
-  /* new */
   cornerFrame: renderCornerFrame, sideBars: renderSideBars, slantBox: renderSlantBox,
   accentStrip: renderAccentStrip, outlineText: renderOutlineText, splitTone: renderSplitTone,
   badgeBelow: renderBadgeBelow, slashSplit: renderSlashSplit, horizLine: renderHorizLine,
@@ -822,15 +763,11 @@ const RENDERERS = {
   redBar: renderRedBar, whiteBar: renderWhiteBar, stacked: renderStacked
 };
 
-/* Padding is stored per side; older projects and the presets only carry padXr / padYr,
-   so fall back to those whenever a side has not been set. */
 function padRatio(st, side){
   const v = st["pad" + side + "r"];
   if (typeof v === "number") return v;
   return (side === "L" || side === "R") ? (st.padXr || 0) : (st.padYr || 0);
 }
-/* Several presets paint their own drop shadow or offset copy. This switch turns those
-   off so the caption can use the Text shadow controls instead (or no shadow at all). */
 function presetShadowOn(st){ return st.presetShadow !== false; }
 function setPresetShadow(ctx, st, color, blur, ox, oy){
   if (!presetShadowOn(st)){
@@ -876,14 +813,6 @@ function revealed(seg, i, t, mode){
   if (mode === 1) return t >= w.s;
   return t >= w.s && t < w.e;
 }
-/* Word timings almost never fill a caption window end to end: Whisper's first word can
-   start after the caption appears, its last word can finish early, and every pause in
-   between leaves a gap. The words themselves are painted for the whole caption window,
-   so anything keyed to the raw word times — the Word Box, the highlight bar, the active
-   word accent — blinks off at those moments and the style looks like it is missing on
-   some words. These windows tile [seg.start, seg.end] exactly: every instant the caption
-   is on screen belongs to exactly one word, so the box always has a word to sit behind.
-   The raw seg.wt times are left untouched for the reveal/karaoke progress. */
 function wordWindows(seg){
   const n = seg.words.length;
   if (seg._ww && seg._ww.length === n) return seg._ww;
@@ -892,7 +821,7 @@ function wordWindows(seg){
     let s = seg.wt[i].s, e = seg.wt[i].e;
     if (i === 0) s = Math.min(s, seg.start);
     if (i === n - 1) e = Math.max(e, seg.end);
-    else e = Math.max(e, seg.wt[i+1].s);   // hold this word through the pause that follows it
+    else e = Math.max(e, seg.wt[i+1].s);
     out[i] = { s, e };
   }
   for (let i = 1; i < n; i++) if (out[i].s < out[i-1].e) out[i].s = out[i-1].e;
@@ -906,14 +835,12 @@ function activeWordIndex(seg, t){
   return -1;
 }
 
-/* ---------- shared layout ---------- */
 function layoutSegment(ctx, W, H, st, seg){
   const fs = st.fontSize;
   const padL = fs * padRatio(st, "L");
   const padR = fs * padRatio(st, "R");
   const padT = fs * padRatio(st, "T");
   const padB = fs * padRatio(st, "B");
-  // padX / padY stay as the "text inset" and "average vertical pad" the renderers expect.
   const padX = padL;
   const padY = (padT + padB) / 2;
   const gap  = fs * 0.10;
@@ -930,8 +857,6 @@ function layoutSegment(ctx, W, H, st, seg){
   ctx.font = fontStr(st, fs, false);
   let asc, desc;
   if (st.boxFit === "text"){
-    // Measure the words actually on screen, so an ALL-CAPS line gets an evenly
-    // balanced box instead of carrying the font's unused descender space.
     let a = 0, d = 0;
     for (let i = 0; i < n; i++){
       ctx.font = fontStr(st, fs, seg.em[i]);
@@ -994,9 +919,6 @@ function layoutSegment(ctx, W, H, st, seg){
            boxH, boxTopOff, widths, lines: lineData, nL };
 }
 
-/* ---------- text shadow (its own layer, usable with every caption preset) ----------
-   The shadow can sit either behind the caption box (classic) or above it, so an
-   animated box slides in *behind* the shadow while the letters stay crisp on top. */
 let CUR_SCALE = 1;
 let SHADOW_LAYER_CANVAS = null;
 
@@ -1062,7 +984,6 @@ function paintTextShadow(ctx, t, st, seg, L, sh){
     ctx.restore();
   }
 }
-/* Optional: the caption box drops a shadow of its own. Always painted behind the box. */
 function paintBoxShadow(ctx, t, st, seg, L, sh){
   const seen = Object.create(null);
   for (const w of shadowWords(t, st, seg, L)){
@@ -1091,8 +1012,6 @@ function paintBoxShadow(ctx, t, st, seg, L, sh){
     ctx.restore();
   }
 }
-/* Cut the letter shapes back out of the shadow layer, so a shadow drawn above the
-   box never muddies the text it belongs to. */
 function punchGlyphs(ctx, t, st, seg, L){
   ctx.save();
   ctx.globalCompositeOperation = "destination-out";
@@ -1131,8 +1050,6 @@ function drawSegment(ctx, W, H, t, st, seg){
   if (sh && !above) paintTextShadow(ctx, t, st, seg, L, sh);
   (RENDERERS[st.preset] || RENDERERS.box)(ctx, W, H, t, st, seg, L);
   if (above){
-    // Paint the shadow on its own layer, cut the letters out of it, then lay it over
-    // the finished caption: the box (animated or not) ends up behind the shadow.
     const lay = shadowScratch(ctx);
     paintTextShadow(lay.ctx, t, st, seg, L, sh);
     punchGlyphs(lay.ctx, t, st, seg, L);
@@ -1145,15 +1062,11 @@ function drawSegment(ctx, W, H, t, st, seg){
   }
 }
 
-/* =====================================================================
-   CORE RENDERERS
-   ===================================================================== */
+/* ---------- CORE RENDERERS ---------- */
 function renderBox(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const tracks = animTracks(st);
   const doOut = st.animOut && st.animIn !== "none";
-  // boxMode 0 = a single box that follows the spoken word. Pick that one word up-front
-  // (latest start wins) so two boxes can never be drawn in the same frame.
   const ww = wordWindows(seg);
   let solo = -1;
   if (st.boxMode === 0){
@@ -1614,11 +1527,7 @@ function renderChalk(ctx, W, H, t, st, seg, L){
   }
 }
 
-/* =====================================================================
-   NEW RENDERERS — reference-inspired
-   ===================================================================== */
-
-/* Corner bracket frame — L-shaped corners around the whole line */
+/* ---------- NEW RENDERERS ---------- */
 function renderCornerFrame(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1649,8 +1558,6 @@ function renderCornerFrame(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Vertical bars flanking the entire line */
 function renderSideBars(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1669,8 +1576,6 @@ function renderSideBars(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Slanted parallelogram behind the whole line */
 function renderSlantBox(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1692,15 +1597,13 @@ function renderSlantBox(ctx, W, H, t, st, seg, L){
     for (let k = 0; k < idxs.length; k++){
       const i = idxs[k], r = rects[k];
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
-      ctx.font = fontStr(st, fs, true); // italic
+      ctx.font = fontStr(st, fs, true);
       const isAct = (i === act);
       ctx.fillStyle = isAct ? "#ffffff" : st.textColor;
       ctx.fillText(seg.words[i], r.x + padX, baseline);
     }
   }
 }
-
-/* Yellow strip behind active word only */
 function renderAccentStrip(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1721,8 +1624,6 @@ function renderAccentStrip(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Hollow outline text */
 function renderOutlineText(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1747,8 +1648,6 @@ function renderOutlineText(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Split-tone: alternates word colors between accent and text */
 function renderSplitTone(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1759,7 +1658,6 @@ function renderSplitTone(ctx, W, H, t, st, seg, L){
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
       const isAct = (i === act);
       ctx.font = fontStr(st, fs, seg.em[i]);
-      // first word gets accent color, rest alternate
       let col = st.textColor;
       if (i === 0 || (i % 2 === 1)) col = accentOf(st);
       if (isAct) col = st.emTextColor;
@@ -1768,14 +1666,11 @@ function renderSplitTone(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Small badge under the active word */
 function renderBadgeBelow(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
   for (const line of L.lines){
     const { idxs, rects, baseline, boxTop } = line;
-    // badges under all revealed words
     for (let k = 0; k < idxs.length; k++){
       const i = idxs[k], r = rects[k];
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
@@ -1792,8 +1687,6 @@ function renderBadgeBelow(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Diagonal slash between words */
 function renderSlashSplit(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1803,11 +1696,10 @@ function renderSlashSplit(ctx, W, H, t, st, seg, L){
       const i = idxs[k], r = rects[k];
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
       const isAct = (i === act);
-      ctx.font = fontStr(st, fs, true); // italic
+      ctx.font = fontStr(st, fs, true);
       const col = isAct ? accentOf(st) : st.textColor;
       ctx.fillStyle = col;
       ctx.fillText(seg.words[i], r.x + padX, baseline);
-      // slash between words
       if (k > 0){
         const prevR = rects[k-1];
         const sx = prevR.x + prevR.w + (r.x - prevR.x - prevR.w) / 2;
@@ -1824,8 +1716,6 @@ function renderSlashSplit(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Horizontal rule above text */
 function renderHorizLine(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1843,8 +1733,6 @@ function renderHorizLine(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Nested double outline box */
 function renderDoubleFrame(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1867,8 +1755,6 @@ function renderDoubleFrame(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Thick left accent bar */
 function renderLeftBar(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1888,8 +1774,6 @@ function renderLeftBar(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Colored underline under each revealed word */
 function renderUnderlineAcc(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1900,7 +1784,6 @@ function renderUnderlineAcc(ctx, W, H, t, st, seg, L){
       const i = idxs[k], r = rects[k];
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
       const isAct = (i === act);
-      // underline
       ctx.fillStyle = isAct ? accentOf(st) : st.boxColor;
       ctx.fillRect(r.x + padX * 0.3, baseline + fs * 0.12,
                    r.w - padX * 0.6, uH);
@@ -1910,17 +1793,13 @@ function renderUnderlineAcc(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Small caps header strip above text */
 function renderStripeHeader(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
   for (const line of L.lines){
     const { idxs, rects, x0, total, boxTop, baseline } = line;
-    // top strip
     ctx.fillStyle = accentOf(st);
     ctx.fillRect(x0, boxTop - fs * 0.15, total, Math.max(3, fs * 0.06));
-    // small caps header text (single-letter caps placeholders)
     ctx.font = '700 ' + Math.round(fs * 0.18) + 'px "' + st.fontFamily + '", sans-serif';
     ctx.fillStyle = st.textColor;
     ctx.textBaseline = "alphabetic";
@@ -1935,8 +1814,6 @@ function renderStripeHeader(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Neon corner glow frame */
 function renderNeonFrame(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1968,8 +1845,6 @@ function renderNeonFrame(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Vintage cinema bar with letter spacing */
 function renderCinemaBar(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -1991,8 +1866,6 @@ function renderCinemaBar(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Big red bar (DAVID WILSON) */
 function renderRedBar(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -2011,8 +1884,6 @@ function renderRedBar(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* White bar with red text */
 function renderWhiteBar(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -2031,8 +1902,6 @@ function renderWhiteBar(ctx, W, H, t, st, seg, L){
     }
   }
 }
-
-/* Stacked two-color name (word 1 accent, word 2 white) */
 function renderStacked(ctx, W, H, t, st, seg, L){
   const { fs, padX, boxH } = L;
   const act = activeWordIndex(seg, t);
@@ -2043,7 +1912,6 @@ function renderStacked(ctx, W, H, t, st, seg, L){
       if (!revealed(seg, i, t, st.revealMode) && i !== act) continue;
       const isAct = (i === act);
       ctx.font = fontStr(st, fs, seg.em[i]);
-      // alternate first word red, second white
       const col = (i === 0) ? accentOf(st) : st.textColor;
       ctx.fillStyle = isAct ? "#ffffff" : col;
       ctx.fillText(seg.words[i], r.x + padX, baseline);
@@ -2075,12 +1943,10 @@ function fitContain(sw, sh, dw, dh){
 function recomputeStage(){
   const aspect = state.style.stageAspect || "auto";
   if (aspect === "custom"){
-    // An explicit project size (chosen when importing audio, or typed in the Style tab).
     const pw = clamp(Math.round(state.style.projW || 1080), 64, 4096);
     const ph = clamp(Math.round(state.style.projH || 1920), 64, 4096);
     if (state.mode === "audio"){ SW = pw; SH = ph; }
     else {
-      // Video keeps its own pixels; the project size only sets the frame shape.
       const targetAR = pw / ph, videoAR = (VW && VH) ? VW / VH : targetAR;
       if (!VW || !VH){ SW = pw; SH = ph; }
       else if (videoAR > targetAR){ SW = VW; SH = Math.round(VW / targetAR); }
@@ -2144,7 +2010,6 @@ function fitStage(){
   const s = Math.min(availW / SW, availH / SH);
   const w = Math.round(SW * s), h = Math.round(SH * s);
   if (vp){
-    // The viewport is the window; the shell fills it and is scaled inside.
     vp.style.width = w + "px";
     vp.style.height = h + "px";
     shell.style.width = "100%";
@@ -2159,9 +2024,7 @@ function fitStage(){
 }
 
 /* =====================================================================
-   PREVIEW ZOOM  (view only — the canvas, the stage size and every export
-   are untouched; this just scales what is on screen so details can be
-   inspected close up.)
+   PREVIEW ZOOM
    ===================================================================== */
 const ZOOM_MIN = 1, ZOOM_MAX = 12;
 let zoom = 1, panX = 0, panY = 0;
@@ -2172,7 +2035,6 @@ function clampPan(){
   if (!vp) return;
   const w = vp.clientWidth, h = vp.clientHeight;
   if (zoom <= 1){ panX = 0; panY = 0; return; }
-  // Never let the stage be dragged away from the window.
   panX = clamp(panX, w - w * zoom, 0);
   panY = clamp(panY, h - h * zoom, 0);
 }
@@ -2187,7 +2049,6 @@ function applyZoom(){
   const hud = $("#zoomHud");
   if (hud) hud.classList.toggle("on", zoom > 1.001);
 }
-/* Zoom around a point, so whatever is under the pointer stays under it. */
 function zoomAt(factor, cx, cy){
   const prev = zoom;
   const next = clamp(prev * factor, ZOOM_MIN, ZOOM_MAX);
@@ -2210,16 +2071,13 @@ function setupZoom(){
   vp.addEventListener("wheel", e => {
     e.preventDefault();
     const r = vp.getBoundingClientRect();
-    // Trackpads report small pixel deltas, mice report ~100 per notch.
     const step = e.deltaMode === 1 ? e.deltaY * 16 : (e.deltaMode === 2 ? e.deltaY * r.height : e.deltaY);
     zoomAt(Math.exp(-clamp(step, -240, 240) * 0.0022), e.clientX - r.left, e.clientY - r.top);
   }, { passive: false });
 
   let dragging = false, lastX = 0, lastY = 0, moved = 0;
   vp.addEventListener("pointerdown", e => {
-    // The zoom buttons sit inside the viewport; leave their clicks alone.
     if (e.target.closest && e.target.closest(".zoom-hud")) return;
-    // Middle button pans at any zoom; the left button pans once zoomed in.
     if (e.button !== 1 && !(e.button === 0 && zoom > 1.001)) return;
     dragging = true; moved = 0;
     lastX = e.clientX; lastY = e.clientY;
@@ -2450,10 +2308,9 @@ function rebuildAll(){
 /* =====================================================================
    TRANSCRIPTION
    ===================================================================== */
-/* ---- Audio extraction helpers (so big videos work, esp. on mobile) ---- */
-const TR_SAMPLE_RATE = 16000;          // Whisper's native rate; keeps files tiny
-const TR_CHUNK_SECONDS = 90;           // 90s of 16 kHz mono 16-bit WAV ≈ 2.9 MB (< 4 MB limit)
-const TR_MAX_FILE_BYTES = 400 * 1024 * 1024; // decoding bigger files can crash phones
+const TR_SAMPLE_RATE = 16000;
+const TR_CHUNK_SECONDS = 90;
+const TR_MAX_FILE_BYTES = 400 * 1024 * 1024;
 
 async function decodeToMono16k(file, onProgress){
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -2470,7 +2327,6 @@ async function decodeToMono16k(file, onProgress){
   const ctx = new AC();
   let decoded;
   try {
-    // Safari older versions only support the callback form; wrap both.
     decoded = await new Promise((resolve, reject) => {
       const r = ctx.decodeAudioData(buf, resolve, reject);
       if (r && typeof r.then === "function") r.then(resolve, reject);
@@ -2483,7 +2339,7 @@ async function decodeToMono16k(file, onProgress){
   }
   onProgress("Converting audio…", 12);
   const length = Math.max(1, Math.ceil(decoded.duration * TR_SAMPLE_RATE));
-  const off = new OAC(1, length, TR_SAMPLE_RATE);   // downmixes to mono automatically
+  const off = new OAC(1, length, TR_SAMPLE_RATE);
   const src = off.createBufferSource();
   src.buffer = decoded;
   src.connect(off.destination);
@@ -2509,7 +2365,6 @@ function pcmToWav(samples){
   }
   return new Blob([out], { type: "audio/wav" });
 }
-// Choose cut points in quiet spots so words are not sliced in half.
 function planChunks(samples){
   const size = TR_CHUNK_SECONDS * TR_SAMPLE_RATE, win = Math.floor(0.05 * TR_SAMPLE_RATE);
   const cuts = [0];
@@ -2529,32 +2384,84 @@ function planChunks(samples){
   for (let i = 0; i < cuts.length - 1; i++) parts.push([cuts[i], cuts[i+1]]);
   return parts;
 }
+
+/* ---------- sendChunk: uses octet-stream, NOT FormData (correct for api/transcribe.js) ---------- */
 async function sendChunk(blob, lang, tries){
-  const form = new FormData();
-  form.append("file", blob, "audio.wav");
-  if (lang) form.append("language", lang);
+  const params = new URLSearchParams({ name: "audio.wav" });
+  if (lang) params.set("lang", lang);
+
   let lastErr;
-  for (let attempt = 0; attempt <= tries; attempt++){
+
+  for (let attempt = 0; attempt <= tries; attempt++) {
     try {
-      const response = await fetch("/api/transcribe", { method: "POST", body: form });
+      const response = await fetch(`/api/transcribe?${params}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream"
+        },
+        body: blob
+      });
+
       const text = await response.text();
-      let data; try { data = JSON.parse(text); } catch (_) { data = null; }
+      let data;
+
+      try {
+        data = JSON.parse(text);
+      } catch (_) {
+        data = null;
+      }
+
       if (response.ok && data) return data;
-      if (response.status === 404) throw Object.assign(new Error("Transcription API not found. Confirm the Vercel deployment includes the api/transcribe.js function."), { fatal: true });
-      if (response.status === 413) throw Object.assign(new Error("The server rejected the upload as too large."), { fatal: true });
-      if ([401, 403].includes(response.status)) throw Object.assign(new Error((data && data.error) || "API key rejected. Check TRANSCRIPTION_API_KEY in Netlify."), { fatal: true });
-      const msg = (data && (data.error || data.message)) || ("Transcription service returned HTTP " + response.status + (data ? "" : " (no JSON — the function may have timed out)"));
-      lastErr = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
-      if (response.status === 429) await new Promise(r => setTimeout(r, 4000 * (attempt + 1)));
-      else await new Promise(r => setTimeout(r, 1200));
-    } catch (e){
+
+      if (response.status === 404) {
+        throw Object.assign(
+          new Error("Transcription API not found."),
+          { fatal: true }
+        );
+      }
+
+      if (response.status === 413) {
+        throw Object.assign(
+          new Error("Audio upload is too large."),
+          { fatal: true }
+        );
+      }
+
+      if ([401, 403].includes(response.status)) {
+        throw Object.assign(
+          new Error(data?.error || "Check your transcription API key."),
+          { fatal: true }
+        );
+      }
+
+      const msg =
+        data?.error ||
+        data?.message ||
+        `Transcription failed (HTTP ${response.status}).`;
+
+      lastErr = new Error(
+        typeof msg === "string" ? msg : JSON.stringify(msg)
+      );
+
+      if (response.status === 429) {
+        await new Promise(r => setTimeout(r, 4000 * (attempt + 1)));
+      } else {
+        await new Promise(r => setTimeout(r, 1200));
+      }
+    } catch (e) {
       if (e.fatal) throw e;
-      lastErr = (e instanceof TypeError) ? new Error("Network error — check your internet connection and try again.") : e;
+
+      lastErr = e instanceof TypeError
+        ? new Error("Network error — check your internet connection.")
+        : e;
+
       await new Promise(r => setTimeout(r, 1200));
     }
   }
-  throw lastErr;
+
+  throw lastErr || new Error("Transcription failed.");
 }
+
 function normalizeWords(data, offset){
   const out = [];
   const words = Array.isArray(data.words) ? data.words : [];
@@ -2835,12 +2742,7 @@ function exportVTT(){
   });
   download(new Blob([lines.join("\n")], { type: "text/vtt;charset=utf-8" }), "captions.vtt");
 }
-/* srcImg lets the offline renderer hand in a snapshot of the decoded picture instead of
-   reading the <video> element, which is what makes a seek-free render possible. */
 function paintStage(cx, stageW, stageH, drawScale, atTime, srcImg){
-  // Background and video are laid out in full stage units, then scaled to the (possibly
-  // smaller) export canvas. Without this the video was drawn at full size onto a smaller
-  // canvas, so it looked zoomed-in and cropped.
   const s = drawScale || 1;
   cx.save();
   cx.setTransform(s, 0, 0, s, 0, 0);
@@ -2865,27 +2767,9 @@ function exportPNG(){
   paintStage(cx, stage.w, stage.h, 1);
   c.toBlob(b => download(b, "frame.png"), "image/png");
 }
+
 /* =====================================================================
    RENDER ENGINE
-
-   Three engines, fastest first. "Auto" walks down the list until one works.
-
-     Turbo   Renders the movie frame by frame, off the clock: seek, paint, hand
-             the frame to the browser's own hardware H.264 encoder (WebCodecs).
-             ffmpeg then only has to copy that stream into an MP4 and bring the
-             source audio along, so nothing is ever encoded twice.
-
-     Frames  Same off-the-clock render, but the frames go through ffmpeg's x264
-             instead, in batches so a long clip never holds thousands of stills
-             in memory. For browsers with no WebCodecs H.264 encoder.
-
-     Classic The original path: play the clip into a MediaRecorder in real time,
-             then transcode. Slowest, kept as the last resort.
-
-   Every engine honours the render range (whole clip, in/out points, or just the
-   caption under the playhead) and every engine can be stopped mid-render.
-   Stopping changes nothing about the project, so you can edit and export again
-   straight away.
    ===================================================================== */
 const FFMPEG_VENDOR = new URL("../vendor/ffmpeg/", import.meta.url).href;
 
@@ -2916,8 +2800,6 @@ function setRenderBusy(on){
     else JOB.hideTimer = setTimeout(() => { if (!JOB.busy) u.prog.classList.remove("on"); }, 4000);
   }
 }
-/* Stop is deliberately blunt: drop the encoder, kill the ffmpeg worker, and let the
-   render loop notice the flag on its next frame. The project itself is untouched. */
 function stopRender(){
   if (!JOB.busy || JOB.cancel) return;
   JOB.cancel = true;
@@ -2927,7 +2809,6 @@ function stopRender(){
   JOB.ffmpeg = null;
 }
 
-/* ---------- render range ---------- */
 function rangeModeValue(){ const el = $("#rngMode"); return el ? el.value : "all"; }
 function exportRange(){
   const dur = duration || 0;
@@ -2980,29 +2861,24 @@ function setRangeFromPlayhead(which){
   syncRangeUI();
 }
 
-/* ---------- output settings ---------- */
 function exportSettings(){
   const stage = getStageDims();
   const longest = Math.max(stage.w, stage.h) || 1920;
   const resSel = $("#expRes") ? $("#expRes").value : "1280";
   const cap = resSel === "src" ? longest : (parseInt(resSel, 10) || 1280);
   const s = Math.min(1, cap / longest);
-  // H.264 wants even dimensions, and so do most hardware encoders.
   const w = Math.max(2, Math.round(stage.w * s / 2) * 2);
   const h = Math.max(2, Math.round(stage.h * s / 2) * 2);
   const fps = clamp(parseInt($("#expFps") ? $("#expFps").value : "30", 10) || 30, 5, 60);
   const qual = $("#expQual") ? $("#expQual").value : "balanced";
   const bpp = qual === "high" ? 0.16 : qual === "small" ? 0.05 : 0.09;
   const bitrate = Math.round(clamp(w * h * fps * bpp, 800000, 40000000));
-  // How the decoded pictures are collected: a playback pass at 1x / 2x / 4x, or an
-  // exact seek for every single frame.
   const capture = $("#expCapture") ? $("#expCapture").value : "2";
   const exact = capture === "exact";
   const rate = exact ? 1 : clamp(parseFloat(capture) || 2, 0.25, 8);
   return { w, h, fps, bitrate, scale: w / (stage.w || w), stage, qual, rate, exact };
 }
 
-/* ---------- ffmpeg ---------- */
 async function loadFFmpeg(onLog){
   if (JOB.ffmpeg) return JOB.ffmpeg;
   renderStatus("Loading the MP4 encoder…");
@@ -3031,8 +2907,6 @@ function sourceExt(){
   if (m) return "." + m[1].toLowerCase();
   return state.mode === "audio" ? ".mp3" : ".mp4";
 }
-/* Last step of both offline engines: wrap the finished video stream in an MP4 and
-   copy the matching slice of the source audio in beside it. */
 async function packageMP4(ffmpeg, inputArgs, range){
   renderStatus("Packaging MP4…", 92);
   const withAudio = !!state.videoFile;
@@ -3055,7 +2929,6 @@ async function packageMP4(ffmpeg, inputArgs, range){
   };
   let code = await run(withAudio);
   if (code !== 0 && withAudio){
-    // A source whose audio ffmpeg cannot decode should not cost you the whole render.
     renderStatus("Audio could not be copied — saving the video without sound…", 95);
     code = await run(false);
   }
@@ -3064,19 +2937,6 @@ async function packageMP4(ffmpeg, inputArgs, range){
   return new Blob([data], { type: "video/mp4" });
 }
 
-/* ---------- shared offline plumbing ----------
-   Both offline engines walk the same ladder of output frames. What differs is only
-   where a finished frame goes: the browser's H.264 encoder, or a JPEG handed to
-   ffmpeg. The expensive part is getting the decoded picture for each timestamp.
-
-   Seeking the <video> element to every frame costs well over 100 ms per seek, which
-   is far slower than simply playing the clip. So the default source is a pump: play
-   the clip once (optionally at 2x or 4x), snapshot each decoded picture as it is
-   presented, and map it onto the output frames it covers. The captions are still
-   drawn fresh for every output frame, so caption animation stays smooth at the full
-   frame rate even when the decoder cannot keep up with a 4x pass.
-
-   If the pump stalls, or you ask for an exact render, the seek path finishes the job. */
 function seekVideo(t){
   return new Promise(resolve => {
     if (state.mode === "audio" || !video.videoWidth){ resolve(); return; }
@@ -3103,11 +2963,6 @@ function frameProgress(i, total, t0, fps, hi, how){
     (isFinite(eta) ? " · " + fmtClock(eta) + " left" : "") +
     (speed ? " · " + speed.toFixed(1) + "× real time" : "") + (how ? " · " + how : ""), 4 + done * (hi - 4));
 }
-/* Plays the clip and feeds decoded pictures to `emit`, which is async (it encodes).
-   A small pool of snapshot canvases decouples decoding from encoding: when the pool
-   runs dry the clip is paused until the encoder catches up, so a slow encoder can
-   never put the picture out of step with the captions. Returns the next frame index
-   still to render, so the seek path can finish anything the pump could not. */
 async function pumpPictures(range, opts, from, total, emit){
   const [dw, dh] = fitContain(VW, VH, opts.stage.w, opts.stage.h);
   const sw = Math.max(1, Math.round(dw * opts.scale));
@@ -3121,23 +2976,19 @@ async function pumpPictures(range, opts, from, total, emit){
   const freeCount = () => { let n = 0; for (const p of pool) if (!p.busy) n++; return n; };
   const freeSlot  = () => pool.find(p => !p.busy);
 
-  /* Backpressure: when the encoder falls behind, slow the clip down rather than pausing
-     it. Pausing and resuming a clip that is playing at 4x can leave the decoder sitting
-     idle for seconds, which is what made the fast passes slower than the slow ones; a
-     playback-rate change is smooth and the decoder never stops. */
   const FAST = opts.rate, SLOW = Math.max(0.25, Math.min(1, opts.rate / 8));
   let throttled = false;
   const setRate = r => { try { if (video.playbackRate !== r) video.playbackRate = r; } catch(e){} };
 
   const queue = [];
   let producerDone = false, waiter = null, grabbed = 0, seenPics = 0;
-  let newest = -Infinity;        // media time of the most recent decoded picture
+  let newest = -Infinity;
   const wake = () => { const w = waiter; waiter = null; if (w) w(); };
   const onPicture = (now, md) => {
     if (JOB.cancel){ producerDone = true; wake(); return; }
     const mt = md && Number.isFinite(md.mediaTime) ? md.mediaTime : video.currentTime;
     seenPics++;
-    if (mt > newest) newest = mt;   // the clock advances even for a picture we cannot store
+    if (mt > newest) newest = mt;
     const slot = freeSlot();
     if (slot){
       slot.busy = true;
@@ -3153,7 +3004,7 @@ async function pumpPictures(range, opts, from, total, emit){
   const onEnded = () => { producerDone = true; wake(); };
   video.addEventListener("ended", onEnded);
 
-  let held = null;                      // newest picture we are allowed to reuse
+  let held = null;
   const adopt = slot => { if (held && held !== slot) held.busy = false; held = slot; };
   const relax = () => {
     if (throttled && freeCount() >= 3){ throttled = false; setRate(FAST); }
@@ -3164,27 +3015,23 @@ async function pumpPictures(range, opts, from, total, emit){
   setRate(FAST);
   await seekVideo(range.start);
   video.requestVideoFrameCallback(onPicture);
-  try { await video.play(); } catch(e){ /* autoplay refused -- the seek path takes over */ }
+  try { await video.play(); } catch(e){ /* autoplay refused */ }
 
   try {
     while (i < total){
       throwIfCancelled();
       const want = range.start + i / opts.fps;
-      // Wait only until the decoder has presented a picture at or past this timestamp.
-      // `newest` is tracked separately from the queue: the queue drains as pictures are
-      // adopted, so waiting for it to refill would stall on every frame the decoder
-      // skipped during a 2x / 4x pass -- which is most of them.
       let spins = 0, seen = -1;
       while (!producerDone && newest < want){
-        while (queue.length > 1) adopt(queue.shift().slot);   // never let the pool starve
+        while (queue.length > 1) adopt(queue.shift().slot);
         relax();
         await new Promise(r => { waiter = r; setTimeout(r, 60); });
         throwIfCancelled();
         if (seenPics !== seen){ seen = seenPics; spins = 0; }
-        else if (++spins > 40) return i;                      // stalled: hand over to seeking
+        else if (++spins > 40) return i;
       }
       while (queue.length && queue[0].t <= want + 1e-6) adopt(queue.shift().slot);
-      if (!held && queue.length) adopt(queue.shift().slot);    // first picture arrived a touch late
+      if (!held && queue.length) adopt(queue.shift().slot);
       if (!held && producerDone) return i;
       await emit(i, want, held ? held.c : null);
       i++;
@@ -3199,7 +3046,6 @@ async function pumpPictures(range, opts, from, total, emit){
   }
   return i;
 }
-/* Renders [range] into `sink`, frame by frame, as fast as the machine allows. */
 async function renderOffline(range, opts, sink){
   const total = Math.max(1, Math.round(range.dur * opts.fps));
   const hasPicture = state.mode !== "audio" && !!video.videoWidth;
@@ -3211,7 +3057,7 @@ async function renderOffline(range, opts, sink){
     await sink.push(i);
     if ((i % 4) === 0 || i === total - 1){
       frameProgress(i, total, t0, opts.fps, sink.hi, how);
-      await nextTick();            // let the UI paint and the Stop button get its click in
+      await nextTick();
     }
   };
   let i = 0;
@@ -3232,11 +3078,8 @@ async function renderOffline(range, opts, sink){
   return sink.finish(range);
 }
 
-/* ---------- engine 1: turbo — the browser's own H.264 encoder (WebCodecs) ---------- */
 async function pickAvcConfig(w, h, fps, bitrate){
   if (typeof VideoEncoder === "undefined" || !VideoEncoder.isConfigSupported) return null;
-  // High 5.2 first, then progressively plainer profiles, so both a 4K vertical frame
-  // and a 720p one find something this machine can actually encode.
   const codecs = ["avc1.640034", "avc1.64002A", "avc1.4D402A", "avc1.42E02A",
                   "avc1.640028", "avc1.4D401F", "avc1.42E01F"];
   for (const codec of codecs){
@@ -3252,7 +3095,7 @@ async function pickAvcConfig(w, h, fps, bitrate){
 async function makeTurboSink(opts){
   if (typeof VideoFrame === "undefined") return null;
   const cfg = await pickAvcConfig(opts.w, opts.h, opts.fps, opts.bitrate);
-  if (!cfg) return null;                       // no H.264 encoder here — try the next engine
+  if (!cfg) return null;
   const cvs = document.createElement("canvas");
   cvs.width = opts.w; cvs.height = opts.h;
   const cx = cvs.getContext("2d", { alpha: false });
@@ -3298,14 +3141,11 @@ async function makeTurboSink(opts){
       parts.length = 0;
       const ffmpeg = await loadFFmpeg();
       await ffmpeg.writeFile("wb-video.h264", h264);
-      // The stream is already H.264, so ffmpeg only copies it into an MP4 container.
       return packageMP4(ffmpeg, ["-r", String(opts.fps), "-f", "h264", "-i", "wb-video.h264"], range);
     }
   };
 }
 
-/* ---------- engine 2: frames — same offline render, encoded by ffmpeg's x264 ----------
-   Encoding happens in batches so a long clip never holds thousands of stills at once. */
 function canvasToJpeg(cvs, q){
   return new Promise((resolve, reject) => {
     cvs.toBlob(b => b ? resolve(b) : reject(new Error("Could not read a frame off the canvas.")),
@@ -3364,7 +3204,6 @@ async function makeFrameSink(opts){
   };
 }
 
-/* ---------- engine 3: classic (real-time capture + transcode) ---------- */
 async function transcodeWebMToMP4(webmBlob, onStatus, durationSec){
   let lastPct = -1;
   const report = frac => {
@@ -3374,8 +3213,6 @@ async function transcodeWebMToMP4(webmBlob, onStatus, durationSec){
     lastPct = pct;
     onStatus("Converting to MP4… " + pct + "%", pct);
   };
-  // MediaRecorder WebM files carry no duration, so ffmpeg's own progress value is
-  // unreliable. Parse "time=00:00:12.34" from the log and divide by the known length.
   const ffmpeg = await loadFFmpeg(({ message }) => {
     const m = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(message);
     if (m && durationSec > 0) report((+m[1] * 3600 + +m[2] * 60 + +m[3]) / durationSec);
@@ -3478,7 +3315,6 @@ async function renderClassic(range, opts){
     }, range.dur);
   } catch (err){
     if (err && err.aborted) throw err;
-    // Don't lose the take if only the conversion failed.
     download(webm, "wordbox-captions.webm");
     renderStatus("MP4 conversion failed — saved the recording as WebM instead.", 100);
     throw new Error((err && err.message ? err.message : String(err)) +
@@ -3486,7 +3322,6 @@ async function renderClassic(range, opts){
   }
 }
 
-/* ---------- entry point ---------- */
 function exportFileName(range){
   const f = state.videoFile;
   const base = (f && f.name ? f.name.replace(/\.[^.]+$/, "") : "wordbox")
@@ -3508,7 +3343,7 @@ async function exportVideo(){
   JOB.cancel = false;
   setRenderBusy(true);
   const prevTime = video.currentTime, prevRate = video.playbackRate;
-  const prevVol = video.volume, prevMuted = video.muted;   // the pump mutes the clip
+  const prevVol = video.volume, prevMuted = video.muted;
   video.pause();
 
   try {
@@ -3576,9 +3411,6 @@ async function exportVideo(){
 /* =====================================================================
    PROJECT SAVE/LOAD
    ===================================================================== */
-/* A project is one file the user keeps on their PC:
-     "WBOXPRJ1" + 4-byte little-endian header length + UTF-8 JSON header + raw media bytes.
-   The header alone is valid JSON-ish metadata, and old .json projects still open. */
 const PRJ_MAGIC = "WBOXPRJ1";
 const PRJ_VERSION = 6;
 
@@ -3660,7 +3492,6 @@ async function readProjectFile(file){
     const bytes = new Uint8Array(buf);
     const magic = new TextDecoder().decode(bytes.subarray(0, PRJ_MAGIC.length));
     if (magic !== PRJ_MAGIC){
-      // Legacy settings-only project (.json from earlier versions).
       const data = JSON.parse(new TextDecoder("utf-8").decode(bytes));
       applyProjectData(data);
       if (info) info.textContent = "Opened a settings-only project \u2014 import the media to go with it.";
@@ -3674,7 +3505,6 @@ async function readProjectFile(file){
     if (hasMedia){
       const type = data.media.type || (data.mode === "audio" ? "audio/mpeg" : "video/mp4");
       const mediaFile = new File([buf.slice(mediaStart)], data.media.name || "project-media", { type });
-      // Load the media first, then apply the saved look once its metadata is in.
       const once = () => {
         video.removeEventListener("loadedmetadata", once);
         applyProjectData(data);
@@ -3767,7 +3597,6 @@ function setPad(side, pct){
   const v = clamp(pct, 0, 80) / 100;
   st["pad" + side + "r"] = v;
   if (st.padLink !== false) st["pad" + PAD_OPPOSITE[side] + "r"] = v;
-  // Keep the legacy pair in step, so older exports and the fitting pass agree.
   st.padXr = (padRatio(st, "L") + padRatio(st, "R")) / 2;
   st.padYr = (padRatio(st, "T") + padRatio(st, "B")) / 2;
   syncPaddingUI();
@@ -3782,7 +3611,6 @@ function setupPadding(){
   if (link) link.addEventListener("change", function(){
     state.style.padLink = this.checked;
     if (this.checked){
-      // Adopt the larger of each pair so nothing jumps inwards unexpectedly.
       const x = Math.max(padRatio(state.style, "L"), padRatio(state.style, "R"));
       const y = Math.max(padRatio(state.style, "T"), padRatio(state.style, "B"));
       state.style.padLr = state.style.padRr = x;
@@ -3826,7 +3654,6 @@ function normalizeStyle(){
     padXr: 0.16, padYr: 0.10
   };
   for (const k in d) if (state.style[k] === undefined || state.style[k] === null) state.style[k] = d[k];
-  // Projects and presets written before per-side padding only carry padXr / padYr.
   const st = state.style;
   if (typeof st.padTr !== "number") st.padTr = st.padYr;
   if (typeof st.padBr !== "number") st.padBr = st.padYr;
@@ -3859,7 +3686,6 @@ function applyPreset(id){
   state.style.preset = id;
   if (p.apply){
     Object.assign(state.style, p.apply);
-    // A preset speaks in X/Y padding, so push that onto the four sides it replaces.
     if (typeof p.apply.padXr === "number"){ state.style.padLr = state.style.padRr = p.apply.padXr; }
     if (typeof p.apply.padYr === "number"){ state.style.padTr = state.style.padBr = p.apply.padYr; }
   }
@@ -3924,9 +3750,6 @@ function syncStyleToUI(){
   renderPresetGrid();
   applyVideoBgToShell();
 }
-/* =====================================================================
-   PROJECT SIZE  (audio has no picture of its own, so the canvas is chosen)
-   ===================================================================== */
 const SIZE_PRESETS = [
   { n: "Vertical \u00b7 9:16",  w: 1080, h: 1920 },
   { n: "Widescreen \u00b7 16:9", w: 1920, h: 1080 },
@@ -4053,7 +3876,6 @@ function isAudioFile(f){
   if (f.type && /^audio\//.test(f.type)) return true;
   return /\.(mp3|m4a|aac|wav|flac|ogg|oga|opus|wma|aiff?|caf)$/i.test(f.name || "");
 }
-/* Importing audio on its own: ask for the canvas first, then build the project. */
 async function importMediaFile(file, mode){
   if (!file) return;
   const audioOnly = isAudioFile(file);
@@ -4066,7 +3888,7 @@ async function importMediaFile(file, mode){
         : "This project keeps only the sound, so choose the frame your captions are rendered on.",
       ok: "Create project"
     });
-    if (!r) return;               // cancelled — nothing is loaded
+    if (!r) return;
     applyProjectSize(r.w, r.h);
   }
   loadVideoFile(file, wantMode);
@@ -4075,7 +3897,7 @@ async function importMediaFile(file, mode){
 /* =====================================================================
    SPELLING — US / UK
    ===================================================================== */
-let spPending = null;     // the scan waiting to be applied
+let spPending = null;
 let spUndoSnapshot = null;
 
 function spVariantName(v){ return v === "uk" ? "British (UK)" : "American (US)"; }
@@ -4137,8 +3959,6 @@ function spApply(scan){
   state.captions.forEach((c, i) => {
     if (scan.texts[i] !== undefined && scan.texts[i] !== c.text){
       c.text = scan.texts[i];
-      // The words changed, so any per-word timing no longer lines up by index;
-      // sanitizeWt re-derives it from the caption span on the next rebuild.
       if (c.srcText) c.srcText = scan.texts[i];
     }
   });
@@ -4147,7 +3967,6 @@ function spApply(scan){
   return scan.capsTouched;
 }
 
-/* Used by the "fix new captions automatically" switch, after an import or a transcription. */
 function spAutoApply(){
   const auto = $("#spAuto");
   if (!auto || !auto.checked || !state.captions.length) return;
@@ -4203,7 +4022,6 @@ function setupSpelling(){
   });
 }
 
-/* The home page's AI tool cards, reachable from inside the editor. */
 function setupToolPicker(){
   const back = $("#toolsModal"), open = $("#btnTools"), close = $("#toolsClose");
   if (!back || !open) return;
