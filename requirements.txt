@@ -1,4 +1,23 @@
-fastapi>=0.110,<1.0
-uvicorn[standard]>=0.27,<1.0
-yt-dlp>=2025.1.15
-pydantic>=2.6,<3.0
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:20128/v1",
+    "ANTHROPIC_AUTH_TOKEN": "sk-96c15a4b9d0af228-e37c0a-62b7cf6b",
+    "ANTHROPIC_MODEL": "kr/claude-sonnet-4.5"
+  },
+  "model": "omniroute/free",
+  "extraKnownMarketplaces": {
+    "bang-motion": {
+      "source": {
+        "source": "github",
+        "repo": "bangtutorial/bang-motion"
+      }
+    },
+    "claude-design-skillstack": {
+      "source": {
+        "source": "github",
+        "repo": "freshtechbro/claudedesignskills"
+      }
+    }
+  },
+  "theme": "dark"
+}
